@@ -1,0 +1,128 @@
+<?php
+
+namespace App\Channels\TelegramBot\Http\Controllers;
+
+use App\Channels\TelegramBot\UpdateRouter;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Telegram\Bot\Api;
+use Telegram\Bot\Objects\Update;
+
+/**
+ * تنها نقطه‌ی ورودی ربات اصلی. مسئولیت این کنترلر فقط چهار چیز است:
+ * ۱) راستی‌آزمایی درخواست، ۲) جلوگیری از پردازش دوباره‌ی همان Update
+ * (تلگرام اگر پاسخ webhook کند نرسد یا دیر برسد، همان Update را دوباره
+ * می‌فرستد — بدون این محافظت، عملیات کند مثل ساخت اکانت روی پنل واقعی
+ * می‌تواند دوبار اجرا شود و دو اکانت/دو کسر کیف‌پول برای یک کلیک ایجاد
+ * کند)، ۳) پیدا/ساخت کاربر مرکزی (بند ۲۵)، ۴) واگذاری کامل منطق به
+ * UpdateRouter. هیچ منطق کسب‌وکاری اینجا نوشته نمی‌شود (بند ۳۴ سند).
+ */
+class WebhookController
+{
+    public function __construct(protected Api $telegram, protected UpdateRouter $router)
+    {
+    }
+
+    public function __invoke(Request $request, string $token): Response
+    {
+        if (! hash_equals((string) config('telegram.bots.main.token'), $token)) {
+            abort(404);
+        }
+
+        $secret = config('telegram.webhook_secret');
+        if ($secret && $request->header('X-Telegram-Bot-Api-Secret-Token') !== $secret) {
+            abort(403);
+        }
+
+        $update = new Update($request->all());
+
+        // محافظت در برابر تحویل دوباره‌ی همان Update توسط تلگرام. هر
+        // Update یک update_id یکتا و صعودی دارد؛ اگر قبلاً دیده شده،
+        // بی‌سروصدا نادیده گرفته می‌شود (نه خطا، چون از دید تلگرام این
+        // یک تلاش مجدد عادی است، نه یک درخواست خراب).
+        $updateId = $update->get('update_id');
+
+        if ($updateId !== null) {
+            $cacheKey = "telegram_update_seen_{$updateId}";
+
+            if (Cache::has($cacheKey)) {
+                return response('ok');
+            }
+
+            Cache::put($cacheKey, true, now()->addHours(6));
+        }
+
+        // توجه: عمداً از $update->get('message') / $update->get('callback_query')
+        // استفاده می‌شود (نه getMessage()/getCallbackQuery()). این دو در تست
+        // روی سرور واقعی برای کلیک روی دکمه‌ی این‌لاین («خرید اکانت» →
+        // انتخاب سبد فروش) رفتار متفاوتی داشتند؛ با getMessage()/getCallbackQuery()
+        // پردازش callback_query به‌خاموشی متوقف می‌شد (نه خطا در لاگ، نه
+        // پاسخ به کاربر). اگر در آینده این رفتار دوباره دیده شد، اول اینجا
+        // را بررسی کنید — نسخه‌ی get() ثابت شده کار می‌کند.
+        $message = $update->get('message');
+        $callbackQuery = $update->get('callback_query');
+
+        $telegramUser = $message ? $message->get('from') : ($callbackQuery ? $callbackQuery->get('from') : null);
+        $chat = $message ? $message->getChat() : ($callbackQuery ? $callbackQuery->getMessage()->getChat() : null);
+
+        if (! $telegramUser || ! $chat) {
+            return response('ok');
+        }
+
+        // محافظت حیاتی: اگر فرستنده‌ی این آپدیت خودِ ربات باشد (is_bot),
+        // یعنی تلگرام پیام خروجیِ خودِ ربات را به‌عنوان یک آپدیت ورودیِ
+        // جدید echo کرده — سناریویی که وقتی ویژگی Telegram Business روی
+        // اکانت متصل به این ربات فعال است رخ می‌دهد (تنظیمات تلگرام ←
+        // Telegram Business ← Chatbots). بدون این محافظت، سیستم پیام‌های
+        // خودِ ربات را به‌اشتباه به‌عنوان اقدام یک کاربر واقعی («ربات» با
+        // telegram_id خودش) پردازش می‌کند و باعث می‌شود خرید/شارژ از
+        // حساب اشتباه کسر شود — دقیقاً همان باگی که گزارش شد.
+        if ($telegramUser->get('is_bot')) {
+            return response('ok');
+        }
+
+        $freshName = trim($telegramUser->get('first_name') . ' ' . $telegramUser->get('last_name'));
+
+        // لاگ تشخیصی دائمی: نگه داشته می‌شود چون یک‌بار همین لاگ باعث پیدا
+        // شدن و رفع قطعی یک باگ واقعی شد (echo پیام‌های خودِ ربات به‌خاطر
+        // Telegram Business — رفع‌شده در بالا با فیلتر is_bot). برای هر
+        // آپدیت واقعی کاربر، دقیقاً مشخص می‌کند from.id واقعی و نوع
+        // آپدیت (پیام/کلیک روی دکمه) چه بوده — در صورت بروز هر مشکل
+        // مشابه در آینده (کسر از حساب اشتباه، رفتار غیرمنتظره)، اولین
+        // جایی است که باید بررسی شود.
+        Log::info('telegram_update_resolved', [
+            'update_id' => $updateId,
+            'type' => $message ? 'message' : ($callbackQuery ? 'callback_query' : 'unknown'),
+            'from_id' => $telegramUser->get('id'),
+            'from_first_name' => $telegramUser->get('first_name'),
+            'chat_id' => $chat->getId(),
+            'text_or_data' => $message ? $message->getText() : ($callbackQuery ? $callbackQuery->get('data') : null),
+        ]);
+
+        $user = User::firstOrNew(['telegram_id' => $telegramUser->get('id')]);
+
+        if (! $user->exists) {
+            $user->status = 'active';
+            $user->joined_from = 'bot';
+        }
+
+        // نام کاربر همیشه با آخرین نام نمایشی تلگرامش هماهنگ نگه داشته
+        // می‌شود (نه فقط در اولین پیام) — چون کاربران گاهی نام نمایشی
+        // تلگرامشان را عوض می‌کنند و اگر نام فقط یک‌بار در ساخت رکورد
+        // ذخیره می‌شد، در پنل مدیریت با نام قدیمی/نامرتبط نمایش داده
+        // می‌شد. شناسه‌ی عددی تلگرام (telegram_id) همیشه ثابت و قابل
+        // اتکا می‌ماند؛ full_name صرفاً یک برچسب نمایشی است.
+        if ($freshName !== '') {
+            $user->full_name = $freshName;
+        }
+
+        $user->save();
+
+        $this->router->handle($update, $user, (int) $chat->getId());
+
+        return response('ok');
+    }
+}

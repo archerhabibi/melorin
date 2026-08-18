@@ -1,0 +1,46 @@
+# ===== محرمانه — هرگز نباید commit شوند =====
+.env
+.env.*
+!.env.example
+storage/*.key
+storage/oauth-*.key
+
+# ===== وابستگی‌ها (با composer install / npm install بازسازی می‌شوند) =====
+/vendor
+/node_modules
+
+# ===== فایل‌های تولیدی لاراول =====
+/public/hot
+/public/storage
+/public/build
+/storage/app/public/*
+!/storage/app/public/.gitkeep
+/storage/framework/cache/*
+!/storage/framework/cache/.gitkeep
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitkeep
+/storage/framework/views/*
+!/storage/framework/views/.gitkeep
+/storage/framework/testing/*
+/storage/logs/*
+!/storage/logs/.gitkeep
+/bootstrap/cache/*.php
+!/bootstrap/cache/.gitkeep
+
+# ===== IDE / OS =====
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# ===== تست/دیباگ =====
+.phpunit.result.cache
+.phpunit.cache
+Homestead.json
+Homestead.yaml
+auth.json
+
+# ===== بک‌آپ‌های اسکریپت‌های نصب/ارتقا (نباید توی ریپو باشند) =====
+/melorin-backups
+*.sql
+*.sql.gz
