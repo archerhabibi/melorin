@@ -1,153 +1,839 @@
 #!/usr/bin/env bash
 #
-# update-git.sh — ارتقای نصب موجود ملورین با git pull، به‌جای جایگزینی
-# دستی فایل‌ها از یک zip (همان کاری که update.sh قبلی انجام می‌داد).
+# update-git.sh (v4.1) — Melorin Production Updater
 #
-# پیش‌نیاز: پوشه‌ی نصب باید یک ریپوی git باشد (git init قبلاً روی آن
-# انجام شده و remote origin به GitHub وصل است).
+# جریان:
+# GitHub
+#   ↓
+# working-tree check
+#   ↓
+# fetch + تشخیص update
+#   ↓
+# dry-run
+#   ↓
+# Maintenance Mode
+#   ↓
+# DB Backup
+#   ↓
+# Git Pull
+#   ↓
+# Composer
+#   ↓
+# Migration
+#   ↓
+# Cache
+#   ↓
+# PHP-FPM / Queue / Nginx
+#   ↓
+# HTTP Health Check
+#   ├── سالم → php artisan up
+#   └── خراب → Rollback Code + DB
 #
-# استفاده:
-#   sudo bash update-git.sh                    # مسیر پیش‌فرض /var/www/melorin، برنچ main
-#   sudo bash update-git.sh /path/to/melorin    # مسیر دیگر
-#   sudo bash update-git.sh /path/to/melorin dev # برنچ دیگر
+# ویژگی‌ها:
+# - جلوگیری از آپدیت روی local changes
+# - dry-run
+# - backup کامل DB
+# - Maintenance Mode امن
+# - rollback خودکار code + database
+# - ثبت migration قبل/بعد
+# - تشخیص تغییر composer.json / composer.lock
+# - HTTP health check
+# - عدم rollback صرفاً به‌خاطر restart service
+# - لاگ کامل هر اجرا
 #
-set -euo pipefail
+
+set -Eeuo pipefail
+
+# ============================================================================
+# 1. Arguments
+# ============================================================================
+
+DRY_RUN=0
+ARGS=()
+
+for arg in "$@"; do
+    if [[ "$arg" == "--dry-run" ]]; then
+        DRY_RUN=1
+    else
+        ARGS+=("$arg")
+    fi
+done
+
+APP_DIR="${ARGS[0]:-/var/www/melorin}"
+BRANCH="${ARGS[1]:-main}"
+
+# ============================================================================
+# 2. Basic checks
+# ============================================================================
 
 if [[ $EUID -ne 0 ]]; then
-  echo "این اسکریپت باید با sudo/root اجرا شود: sudo bash update-git.sh" >&2
-  exit 1
+    echo "خطا: این اسکریپت باید با root یا sudo اجرا شود." >&2
+    exit 1
 fi
 
-APP_DIR="${1:-/var/www/melorin}"
-BRANCH="${2:-main}"
-
 if [[ ! -f "$APP_DIR/artisan" ]]; then
-  echo "خطا: پروژه‌ی لاراول در ${APP_DIR} پیدا نشد." >&2
-  exit 1
+    echo "خطا: Laravel project در ${APP_DIR} پیدا نشد." >&2
+    exit 1
 fi
 
 if [[ ! -d "$APP_DIR/.git" ]]; then
-  echo "خطا: ${APP_DIR} یک ریپوی git نیست. اول باید git init کنید و remote را تنظیم کنید." >&2
-  exit 1
+    echo "خطا: ${APP_DIR} یک Git repository نیست." >&2
+    exit 1
 fi
-
-echo "======================================================================"
-echo " ارتقای ملورین (git-based) — مسیر: ${APP_DIR} — برنچ: ${BRANCH}"
-echo "======================================================================"
-echo ""
 
 cd "$APP_DIR"
 
 # ============================================================================
-# بخش ۱: بک‌آپ دیتابیس (فقط دیتابیس — کد که دیگر توسط git history پوشش
-# داده می‌شود نیازی به بک‌آپ جداگانه ندارد)
+# 3. Logging
 # ============================================================================
-TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
-BACKUP_DIR="/root/melorin-backups/${TIMESTAMP}"
-mkdir -p "$BACKUP_DIR"
 
-echo "==> ۱. بک‌آپ دیتابیس در ${BACKUP_DIR}"
+LOG_DIR="/root/melorin-backups/logs"
+mkdir -p "$LOG_DIR"
+
+TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
+LOG_FILE="${LOG_DIR}/update_${TIMESTAMP}.log"
+
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "======================================================================"
+echo " Melorin Update v4.1"
+echo "======================================================================"
+
+if [[ $DRY_RUN -eq 1 ]]; then
+    echo " حالت: DRY-RUN"
+    echo " هیچ تغییری روی سیستم اعمال نمی‌شود."
+fi
+
+echo " مسیر: ${APP_DIR}"
+echo " برنچ: ${BRANCH}"
+echo " لاگ:  ${LOG_FILE}"
+echo "======================================================================"
+echo ""
+
+# ============================================================================
+# 4. Global state
+# ============================================================================
+
+CURRENT_COMMIT=""
+REMOTE_COMMIT=""
+NEW_COMMIT=""
+
+BACKUP_DIR=""
+
+MAINTENANCE_ACTIVE=0
+ROLLBACK_RUNNING=0
+
+MAINT_SECRET=""
+COOKIE_JAR=""
+
+# ============================================================================
+# 5. Read .env
+# ============================================================================
 
 read_env_value() {
-  local key="$1"
-  grep -E "^${key}=" "$APP_DIR/.env" | tail -n1 | cut -d'=' -f2- | sed 's/^"//; s/"$//'
+    local key="$1"
+
+    if [[ ! -f "$APP_DIR/.env" ]]; then
+        return 0
+    fi
+
+    grep -E "^${key}=" "$APP_DIR/.env" 2>/dev/null \
+        | tail -n1 \
+        | cut -d'=' -f2- \
+        | sed 's/^"//; s/"$//'
 }
 
-DB_HOST_ENV="$(read_env_value DB_HOST)"; DB_HOST_ENV="${DB_HOST_ENV:-127.0.0.1}"
+DB_HOST_ENV="$(read_env_value DB_HOST)"
+DB_HOST_ENV="${DB_HOST_ENV:-127.0.0.1}"
+
+DB_PORT_ENV="$(read_env_value DB_PORT)"
+DB_PORT_ENV="${DB_PORT_ENV:-3306}"
+
 DB_DATABASE_ENV="$(read_env_value DB_DATABASE)"
 DB_USERNAME_ENV="$(read_env_value DB_USERNAME)"
 DB_PASSWORD_ENV="$(read_env_value DB_PASSWORD)"
 
-if [[ -n "$DB_DATABASE_ENV" ]]; then
-  if MYSQL_PWD="$DB_PASSWORD_ENV" mysqldump -h "$DB_HOST_ENV" -u "$DB_USERNAME_ENV" "$DB_DATABASE_ENV" \
-      > "${BACKUP_DIR}/database.sql" 2>"${BACKUP_DIR}/mysqldump.log"; then
-    gzip "${BACKUP_DIR}/database.sql"
-    echo "    ذخیره شد: ${BACKUP_DIR}/database.sql.gz"
-  else
-    echo "    هشدار: بک‌آپ دیتابیس شکست خورد — لاگ در ${BACKUP_DIR}/mysqldump.log" >&2
-    exit 1
-  fi
-fi
-echo ""
+APP_URL_ENV="$(read_env_value APP_URL)"
 
 # ============================================================================
-# بخش ۲: git pull
+# 6. Cleanup
 # ============================================================================
-echo "==> ۲. دریافت آخرین تغییرات از GitHub"
+
+cleanup() {
+    if [[ -n "${COOKIE_JAR:-}" && -f "$COOKIE_JAR" ]]; then
+        rm -f "$COOKIE_JAR" || true
+    fi
+}
+
+# ============================================================================
+# 7. Rollback
+# ============================================================================
+
+rollback_all() {
+
+    if [[ "$ROLLBACK_RUNNING" -eq 1 ]]; then
+        return
+    fi
+
+    ROLLBACK_RUNNING=1
+
+    echo ""
+    echo "======================================================================"
+    echo " !!! UPDATE FAILED — ROLLBACK STARTED"
+    echo "======================================================================"
+
+    # ------------------------------------------------------------------------
+    # Disable traps while rollback is running
+    # ------------------------------------------------------------------------
+
+    trap - ERR INT TERM EXIT
+
+    # ------------------------------------------------------------------------
+    # Restore code
+    # ------------------------------------------------------------------------
+
+    if [[ -n "$CURRENT_COMMIT" ]]; then
+
+        echo ""
+        echo "==> برگرداندن کد به commit قبلی:"
+        echo "    ${CURRENT_COMMIT}"
+
+        git reset --hard "$CURRENT_COMMIT" || true
+    fi
+
+    # ------------------------------------------------------------------------
+    # Restore Composer dependencies
+    # ------------------------------------------------------------------------
+
+    if command -v composer >/dev/null 2>&1; then
+
+        echo ""
+        echo "==> بازسازی Composer dependencies"
+
+        export COMPOSER_ALLOW_SUPERUSER=1
+
+        composer install \
+            --no-dev \
+            --optimize-autoloader \
+            --no-interaction \
+            --quiet \
+            || true
+    fi
+
+    # ------------------------------------------------------------------------
+    # Restore database
+    # ------------------------------------------------------------------------
+
+    if [[ -n "$BACKUP_DIR" && -f "${BACKUP_DIR}/database.sql.gz" ]]; then
+
+        echo ""
+        echo "==> بازگردانی دیتابیس"
+
+        if gunzip -c "${BACKUP_DIR}/database.sql.gz" \
+            | MYSQL_PWD="$DB_PASSWORD_ENV" mysql \
+                -h "$DB_HOST_ENV" \
+                -P "$DB_PORT_ENV" \
+                -u "$DB_USERNAME_ENV" \
+                "$DB_DATABASE_ENV"
+        then
+            echo "    دیتابیس با موفقیت restore شد ✅"
+        else
+            echo ""
+            echo "‼️ هشدار بسیار مهم:"
+            echo "    restore خودکار دیتابیس شکست خورد."
+            echo ""
+            echo "    فایل backup:"
+            echo "    ${BACKUP_DIR}/database.sql.gz"
+        fi
+    fi
+
+    # ------------------------------------------------------------------------
+    # Laravel cache rebuild
+    # ------------------------------------------------------------------------
+
+    echo ""
+    echo "==> بازسازی Laravel cache"
+
+    php artisan config:clear || true
+    php artisan cache:clear || true
+    php artisan route:clear || true
+    php artisan view:clear || true
+
+    php artisan config:cache || true
+    php artisan route:cache || true
+    php artisan view:cache || true
+
+    # ------------------------------------------------------------------------
+    # Permissions
+    # ------------------------------------------------------------------------
+
+    chown -R www-data:www-data "$APP_DIR" || true
+
+    find "$APP_DIR/storage" \
+        -type d \
+        -exec chmod 775 {} \; \
+        2>/dev/null || true
+
+    find "$APP_DIR/bootstrap/cache" \
+        -type d \
+        -exec chmod 775 {} \; \
+        2>/dev/null || true
+
+    # ------------------------------------------------------------------------
+    # Bring site back online
+    # ------------------------------------------------------------------------
+
+    if [[ "$MAINTENANCE_ACTIVE" -eq 1 ]]; then
+
+        echo ""
+        echo "==> خروج از Maintenance Mode"
+
+        php artisan up || true
+
+        MAINTENANCE_ACTIVE=0
+
+        echo "    سایت دوباره آنلاین شد."
+    fi
+
+    cleanup
+
+    echo ""
+    echo "======================================================================"
+    echo " ROLLBACK FINISHED"
+    echo "======================================================================"
+
+    if [[ -n "$CURRENT_COMMIT" ]]; then
+        echo " Commit قبلی: ${CURRENT_COMMIT}"
+    fi
+
+    if [[ -n "$BACKUP_DIR" ]]; then
+        echo " Backup: ${BACKUP_DIR}/database.sql.gz"
+    fi
+
+    echo " Log: ${LOG_FILE}"
+    echo "======================================================================"
+}
+
+# ============================================================================
+# 8. Error / interrupt handlers
+# ============================================================================
+
+handle_error() {
+
+    local exit_code=$?
+
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        exit "$exit_code"
+    fi
+
+    rollback_all
+
+    exit "$exit_code"
+}
+
+handle_signal() {
+
+    echo ""
+    echo "‼️ دریافت سیگنال توقف. عملیات متوقف شد."
+
+    rollback_all
+
+    exit 130
+}
+
+trap handle_error ERR
+trap handle_signal INT TERM
+trap cleanup EXIT
+
+# ============================================================================
+# 9. Working tree
+# ============================================================================
+
+echo "==> بررسی working tree"
 
 if [[ -n "$(git status --porcelain)" ]]; then
-  echo "خطا: تغییرات commit‌نشده روی سرور وجود دارد. اول آن‌ها را commit یا stash کنید:" >&2
-  git status --short >&2
-  exit 1
+
+    echo ""
+    echo "خطا: روی سرور تغییرات local ثبت‌نشده وجود دارد:"
+    git status --short
+
+    echo ""
+    echo "برای ایمنی، آپدیت متوقف شد."
+
+    exit 1
 fi
+
+echo "    working tree تمیز است ✅"
+echo ""
+
+# ============================================================================
+# 10. Fetch GitHub
+# ============================================================================
+
+echo "==> بررسی GitHub"
 
 CURRENT_COMMIT="$(git rev-parse HEAD)"
-git fetch origin "$BRANCH"
-git checkout "$BRANCH"
-git pull origin "$BRANCH"
-NEW_COMMIT="$(git rev-parse HEAD)"
 
-if [[ "$CURRENT_COMMIT" == "$NEW_COMMIT" ]]; then
-  echo "    از قبل به‌روز است (${NEW_COMMIT:0:7}) — چیزی برای ارتقا نیست."
-  exit 0
+git fetch origin "$BRANCH" --quiet
+
+REMOTE_COMMIT="$(git rev-parse "origin/${BRANCH}")"
+
+echo "    Current: ${CURRENT_COMMIT:0:12}"
+echo "    Remote:  ${REMOTE_COMMIT:0:12}"
+
+# ============================================================================
+# 11. No update
+# ============================================================================
+
+if [[ "$CURRENT_COMMIT" == "$REMOTE_COMMIT" ]]; then
+
+    echo ""
+    echo "✅ Melorin از قبل به‌روز است."
+    echo ""
+
+    exit 0
 fi
 
-echo "    ${CURRENT_COMMIT:0:7} → ${NEW_COMMIT:0:7}"
-echo "    تغییرات این ارتقا:"
-git log --oneline "${CURRENT_COMMIT}..${NEW_COMMIT}" | sed 's/^/      /'
+# ============================================================================
+# 12. Show update
+# ============================================================================
+
+echo ""
+echo "==> Update موجود است"
+
+git log \
+    --oneline \
+    "${CURRENT_COMMIT}..${REMOTE_COMMIT}" \
+    | sed 's/^/    /'
+
 echo ""
 
 # ============================================================================
-# بخش ۳: composer، migration، کش
+# 13. Composer change detection
 # ============================================================================
+
+if ! git diff --quiet \
+    "${CURRENT_COMMIT}..${REMOTE_COMMIT}" \
+    -- composer.json composer.lock
+then
+
+    echo "⚠️ composer.json یا composer.lock تغییر کرده است."
+    echo "   Composer dependencies در زمان update مجدداً نصب خواهند شد."
+    echo ""
+fi
+
+# ============================================================================
+# 14. Dry run
+# ============================================================================
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+
+    echo "======================================================================"
+    echo " DRY-RUN COMPLETE"
+    echo "======================================================================"
+
+    echo ""
+    echo "در اجرای واقعی مراحل زیر انجام می‌شوند:"
+    echo ""
+    echo "  1. Maintenance Mode"
+    echo "  2. Database Backup"
+    echo "  3. Git Pull"
+    echo "  4. Composer Install"
+    echo "  5. Database Migration"
+    echo "  6. Laravel Cache"
+    echo "  7. Service Restart"
+    echo "  8. HTTP Health Check"
+    echo "  9. php artisan up"
+    echo ""
+
+    exit 0
+fi
+
+# ============================================================================
+# 15. Validate database configuration
+# ============================================================================
+
+if [[ -z "$DB_DATABASE_ENV" ]]; then
+    echo "خطا: DB_DATABASE در .env پیدا نشد." >&2
+    exit 1
+fi
+
+if [[ -z "$DB_USERNAME_ENV" ]]; then
+    echo "خطا: DB_USERNAME در .env پیدا نشد." >&2
+    exit 1
+fi
+
+# ============================================================================
+# 16. Maintenance Mode
+# ============================================================================
+
+MAINT_SECRET="$(php -r 'echo bin2hex(random_bytes(16));')"
+
+echo "==> فعال‌سازی Maintenance Mode"
+
+php artisan down \
+    --secret="$MAINT_SECRET"
+
+MAINTENANCE_ACTIVE=1
+
+echo "    سایت وارد Maintenance Mode شد ✅"
+
+if [[ -n "$APP_URL_ENV" ]]; then
+
+    echo ""
+    echo "    لینک bypass موقت:"
+    echo "    ${APP_URL_ENV%/}/${MAINT_SECRET}"
+fi
+
+echo ""
+
+# ============================================================================
+# 17. Database backup
+# ============================================================================
+
+BACKUP_DIR="/root/melorin-backups/${TIMESTAMP}"
+
+mkdir -p "$BACKUP_DIR"
+
+echo "==> Backup دیتابیس"
+
+if MYSQL_PWD="$DB_PASSWORD_ENV" mysqldump \
+    -h "$DB_HOST_ENV" \
+    -P "$DB_PORT_ENV" \
+    -u "$DB_USERNAME_ENV" \
+    "$DB_DATABASE_ENV" \
+    --single-transaction \
+    --quick \
+    --routines \
+    --triggers \
+    --events \
+    > "${BACKUP_DIR}/database.sql" \
+    2> "${BACKUP_DIR}/mysqldump.log"
+then
+
+    gzip "${BACKUP_DIR}/database.sql"
+
+    echo "    Backup موفق بود ✅"
+    echo "    ${BACKUP_DIR}/database.sql.gz"
+
+else
+
+    echo "خطا: Database backup شکست خورد." >&2
+    echo "Log: ${BACKUP_DIR}/mysqldump.log" >&2
+
+    exit 1
+fi
+
+echo ""
+
+# ============================================================================
+# 18. Migration status BEFORE
+# ============================================================================
+
+echo "==> وضعیت migration قبل از update"
+
+php artisan migrate:status || true
+
+echo ""
+
+# ============================================================================
+# 19. Git Pull
+# ============================================================================
+
+echo "==> دریافت کد جدید از GitHub"
+
+git checkout "$BRANCH"
+
+git pull origin "$BRANCH" --ff-only
+
+NEW_COMMIT="$(git rev-parse HEAD)"
+
+echo ""
+echo "    ${CURRENT_COMMIT:0:12} → ${NEW_COMMIT:0:12} ✅"
+echo ""
+
+# ============================================================================
+# 20. Composer
+# ============================================================================
+
 export COMPOSER_ALLOW_SUPERUSER=1
 
-echo "==> ۳. composer install"
-composer install --no-dev --optimize-autoloader --no-interaction
+echo "==> composer install"
 
+composer install \
+    --no-dev \
+    --optimize-autoloader \
+    --no-interaction
+
+echo "    Composer OK ✅"
 echo ""
-echo "==> ۴. اجرای migration"
+
+# ============================================================================
+# 21. Migration
+# ============================================================================
+
+echo "==> اجرای database migration"
+
 php artisan migrate --force
 
+echo "    Migration OK ✅"
 echo ""
-echo "==> ۵. پاک‌سازی و بازسازی کش"
+
+# ============================================================================
+# 22. Migration status AFTER
+# ============================================================================
+
+echo "==> وضعیت migration بعد از update"
+
+php artisan migrate:status || true
+
+echo ""
+
+# ============================================================================
+# 23. Laravel cache
+# ============================================================================
+
+echo "==> بازسازی Laravel cache"
+
 php artisan config:clear
 php artisan cache:clear
 php artisan route:clear
 php artisan view:clear
+
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
+
 php artisan filament:assets
 
-chown -R www-data:www-data "$APP_DIR"
-find "$APP_DIR/storage" -type d -exec chmod 775 {} \;
-find "$APP_DIR/bootstrap/cache" -type d -exec chmod 775 {} \;
+echo "    Cache OK ✅"
 echo ""
 
 # ============================================================================
-# بخش ۴: ری‌استارت سرویس‌ها
+# 24. Permissions
 # ============================================================================
-echo "==> ۶. ری‌استارت سرویس‌ها"
 
-PHP_FPM_SERVICE="$(systemctl list-units --full --all -t service --no-legend 2>/dev/null | awk '{print $1}' | grep -E '^php[0-9.]+-fpm\.service$' | head -n1 || true)"
+echo "==> تنظیم permissions"
+
+chown -R www-data:www-data "$APP_DIR"
+
+find "$APP_DIR/storage" \
+    -type d \
+    -exec chmod 775 {} \;
+
+find "$APP_DIR/bootstrap/cache" \
+    -type d \
+    -exec chmod 775 {} \;
+
+echo "    Permissions OK ✅"
+echo ""
+
+# ============================================================================
+# 25. Restart services
+# ============================================================================
+
+echo "==> ری‌استارت سرویس‌ها"
+
+PHP_FPM_SERVICE="$(
+    systemctl list-units \
+        --full \
+        --all \
+        -t service \
+        --no-legend 2>/dev/null \
+    | awk '{print $1}' \
+    | grep -E '^php[0-9.]+-fpm\.service$' \
+    | head -n1 \
+    || true
+)"
+
 if [[ -n "$PHP_FPM_SERVICE" ]]; then
-  systemctl restart "$PHP_FPM_SERVICE"
-  echo "    ${PHP_FPM_SERVICE} ری‌استارت شد"
+
+    if systemctl restart "$PHP_FPM_SERVICE"; then
+        echo "    ${PHP_FPM_SERVICE} OK ✅"
+    else
+        echo "    ⚠️ ${PHP_FPM_SERVICE} restart شکست خورد."
+        echo "    rollback انجام نمی‌شود؛ Health Check ادامه پیدا می‌کند."
+    fi
+
+else
+
+    echo "    ⚠️ PHP-FPM service پیدا نشد."
 fi
+
+# ------------------------------------------------------------------------
 
 if command -v supervisorctl >/dev/null 2>&1; then
-  supervisorctl restart melorin-worker:* 2>/dev/null || echo "    توجه: melorin-worker در supervisor پیدا نشد."
+
+    if supervisorctl restart melorin-worker:* 2>/dev/null; then
+        echo "    Melorin queue worker OK ✅"
+    else
+        echo "    ⚠️ melorin-worker در Supervisor پیدا نشد یا restart نشد."
+    fi
+
 else
-  php artisan queue:restart
+
+    if php artisan queue:restart; then
+        echo "    Queue restart signal ارسال شد ✅"
+    else
+        echo "    ⚠️ queue:restart شکست خورد."
+    fi
 fi
 
-systemctl reload nginx 2>/dev/null || true
+# ------------------------------------------------------------------------
+
+if systemctl reload nginx 2>/dev/null; then
+    echo "    nginx reload OK ✅"
+else
+    echo "    ⚠️ nginx reload شکست خورد."
+fi
 
 echo ""
+
+# ============================================================================
+# 26. Health check
+# ============================================================================
+
+echo "==> Health Check"
+
+# ------------------------------------------------------------------------
+# Laravel / DB
+# ------------------------------------------------------------------------
+
+if php artisan migrate:status > /dev/null; then
+
+    echo "    Database / Laravel OK ✅"
+
+else
+
+    echo "خطا: Laravel/Database health check شکست خورد." >&2
+    exit 1
+fi
+
+# ------------------------------------------------------------------------
+# HTTP
+# ------------------------------------------------------------------------
+
+if [[ -n "$APP_URL_ENV" ]] && command -v curl >/dev/null 2>&1; then
+
+    COOKIE_JAR="$(mktemp)"
+
+    echo "    HTTP URL: ${APP_URL_ENV}"
+
+    BYPASS_CODE="$(
+        curl \
+            -s \
+            -o /dev/null \
+            -w "%{http_code}" \
+            -c "$COOKIE_JAR" \
+            -L \
+            --max-time 10 \
+            -k \
+            "${APP_URL_ENV%/}/${MAINT_SECRET}" \
+            || true
+    )"
+
+    HOME_CODE="$(
+        curl \
+            -s \
+            -o /dev/null \
+            -w "%{http_code}" \
+            -b "$COOKIE_JAR" \
+            -L \
+            --max-time 10 \
+            -k \
+            "${APP_URL_ENV%/}/" \
+            || true
+    )"
+
+    rm -f "$COOKIE_JAR"
+    COOKIE_JAR=""
+
+    echo "    Maintenance bypass HTTP: ${BYPASS_CODE}"
+    echo "    Home HTTP: ${HOME_CODE}"
+
+    # Network failure
+    if [[ "$BYPASS_CODE" == "000" || "$HOME_CODE" == "000" ]]; then
+
+        echo ""
+        echo "⚠️ نتوانستیم HTTP را از خود سرور بررسی کنیم."
+        echo "   این مورد به‌تنهایی rollback را فعال نمی‌کند."
+        echo "   بعد از update حتماً سایت را دستی بررسی کنید."
+
+    # Application 5xx
+    elif [[ "$HOME_CODE" =~ ^5[0-9][0-9]$ ]]; then
+
+        echo ""
+        echo "خطا: سایت HTTP ${HOME_CODE} برمی‌گرداند." >&2
+
+        exit 1
+
+    else
+
+        echo ""
+        echo "    HTTP Health Check OK ✅"
+    fi
+
+else
+
+    echo "    ⚠️ APP_URL یا curl موجود نیست."
+    echo "    HTTP Health Check انجام نشد."
+fi
+
+echo ""
+
+# ============================================================================
+# 27. Bring application online
+# ============================================================================
+
+echo "==> خروج از Maintenance Mode"
+
+php artisan up
+
+MAINTENANCE_ACTIVE=0
+
+echo "    سایت آنلاین شد ✅"
+echo ""
+
+# ============================================================================
+# 28. Final verification
+# ============================================================================
+
+echo "==> بررسی نهایی Git"
+
+git status --short
+
+FINAL_COMMIT="$(git rev-parse HEAD)"
+
+echo ""
+echo "    Commit نهایی: ${FINAL_COMMIT}"
+echo ""
+
+# ============================================================================
+# 29. Disable rollback traps
+# ============================================================================
+
+trap - ERR INT TERM
+
+# ============================================================================
+# 30. Success
+# ============================================================================
+
 echo "======================================================================"
-echo " ارتقا کامل شد ✅  (${NEW_COMMIT:0:7})"
+echo " UPDATE COMPLETED SUCCESSFULLY ✅"
 echo "======================================================================"
-echo "بک‌آپ دیتابیس قبل از ارتقا: ${BACKUP_DIR}"
-echo "چک دستی پیشنهادی: php artisan migrate:status ، ورود به پنل ادمین، یک تست خرید"
+echo ""
+echo " Version:       v4.1"
+echo " Commit:        ${FINAL_COMMIT:0:12}"
+echo " Backup:        ${BACKUP_DIR}/database.sql.gz"
+echo " Log:            ${LOG_FILE}"
+echo ""
+echo " بررسی دستی پیشنهادی:"
+echo "   1. ورود به پنل ادمین"
+echo "   2. بررسی کاربران"
+echo "   3. بررسی Wallet"
+echo "   4. بررسی Products"
+echo "   5. تست خرید"
+echo "   6. تست تمدید"
+echo "   7. تست ربات Telegram"
+echo ""
 echo "======================================================================"
