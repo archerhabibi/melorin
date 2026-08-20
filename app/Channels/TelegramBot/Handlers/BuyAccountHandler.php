@@ -85,17 +85,15 @@ class BuyAccountHandler
      * وقتی سبد فروشِ محصول در حالت انتخاب دستی سرور است (بند ۶.۱)، قبل
      * از خرید، لیست سرورهای مجاز آن دسته‌بندی نمایش داده می‌شود تا کاربر
      * خودش انتخاب کند از کدام سرور اکانت بگیرد؛ در غیر این صورت مستقیم
-     * سراغ purchase() (با انتخاب خودکار سرور توسط AccountService) می‌رود.
-     * این همان قدمی بود که در این هندلر جا افتاده بود — AccountService از
-     * قبل $manualPanel را پشتیبانی می‌کرد، فقط این لایه هیچ‌وقت آن را پر
-     * نمی‌کرد.
+     * سراغ proceedAfterServer() (که خودش تصمیم می‌گیرد نام دلخواه بپرسد
+     * یا مستقیم بخرد) می‌رود.
      */
     public function chooseServerOrPurchase(int $chatId, User $user, int $productId): void
     {
         $product = Product::query()->with('category')->where('status', 'active')->findOrFail($productId);
 
         if ($product->category->server_selection_mode !== 'manual') {
-            $this->purchase($chatId, $user, $productId);
+            $this->proceedAfterServer($chatId, $user, $productId, null);
 
             return;
         }
@@ -118,6 +116,66 @@ class BuyAccountHandler
     }
 
     /**
+     * نقطه‌ی مشترکی که چه بعد از انتخاب خودکار سرور (بدون هیچ قدم اضافه)
+     * و چه بعد از انتخاب دستی سرور (بعد از callback «buy:server») به آن
+     * می‌رسیم. اگر سبد فروش روی نام‌گذاری دلخواه تنظیم شده باشد، همین‌جا
+     * نام را از کاربر می‌پرسد؛ وگرنه مستقیم می‌رود سراغ purchase().
+     */
+    public function proceedAfterServer(int $chatId, User $user, int $productId, ?int $panelId): void
+    {
+        $product = Product::query()->where('status', 'active')->findOrFail($productId);
+
+        if ($product->naming_mode !== 'custom') {
+            $this->purchase($chatId, $user, $productId, $panelId);
+
+            return;
+        }
+
+        $this->state->set($chatId, ConversationState::BUY_AWAITING_CUSTOM_NAME, [
+            'product_id' => $productId,
+            'panel_id' => $panelId,
+        ], $user);
+
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "✏️ یک نام دلخواه برای اکانت خود بفرستید:\n\nفقط حروف انگلیسی، عدد و _ مجاز است؛ باید با یک حرف شروع شود و بین ۳ تا ۲۰ کاراکتر باشد (مثال: myaccount1).",
+        ]);
+    }
+
+    /**
+     * ادامه‌ی جریان بعد از این‌که کاربر در پاسخ به proceedAfterServer()
+     * یک پیام متنی به‌عنوان نام دلخواه فرستاده. اعتبارسنجی فرمت اینجا،
+     * و یکتاسازیِ نهایی (افزودن عدد ترتیبی در صورت تکراری بودن) داخل
+     * AccountService::generateUsername انجام می‌شود.
+     */
+    public function handleCustomNameText(int $chatId, User $user, string $text): void
+    {
+        $state = $this->state->find($chatId);
+        $productId = $state->payload['product_id'] ?? null;
+        $panelId = $state->payload['panel_id'] ?? null;
+
+        if (! $productId) {
+            $this->state->reset($chatId);
+            $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'جریان خرید منقضی شده. لطفاً دوباره از ابتدا شروع کنید.']);
+
+            return;
+        }
+
+        $name = trim($text);
+
+        if (! preg_match('/^[A-Za-z][A-Za-z0-9_]{2,19}$/', $name)) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "نام نامعتبر است.\nفقط حروف انگلیسی، عدد و _ مجاز است؛ باید با حرف شروع شود و بین ۳ تا ۲۰ کاراکتر باشد.\nدوباره ارسال کنید:",
+            ]);
+
+            return; // در همین state می‌مانیم تا کاربر دوباره تلاش کند
+        }
+
+        $this->purchase($chatId, $user, (int) $productId, $panelId ? (int) $panelId : null, $name);
+    }
+
+    /**
      * تلاش برای خرید. طبق بند ۹، پرداخت باید تأیید شده باشد؛ در نسخه‌ی
      * ربات، «تأیید پرداخت» معادل کافی‌بودن موجودی کیف پول است — کیف پول
      * باید از قبل (بخش 💰 کیف پول) شارژ شده باشد.
@@ -125,8 +183,10 @@ class BuyAccountHandler
      * $panelId فقط وقتی پر است که کاربر از chooseServerOrPurchase() یک
      * سرور مشخص انتخاب کرده باشد (حالت دستی)؛ در غیر این صورت null است و
      * AccountService خودش طبق استراتژی پیش‌فرض یک سرور را انتخاب می‌کند.
+     * $customUsername فقط وقتی پر است که سبد فروش روی نام‌گذاری دلخواه
+     * تنظیم شده و کاربر از handleCustomNameText() یک نام معتبر فرستاده.
      */
-    public function purchase(int $chatId, User $user, int $productId, ?int $panelId = null): void
+    public function purchase(int $chatId, User $user, int $productId, ?int $panelId = null, ?string $customUsername = null): void
     {
         $product = Product::query()->where('status', 'active')->findOrFail($productId);
         $manualPanel = $panelId ? \App\Models\ServerPanel::query()->where('status', 'active')->find($panelId) : null;
@@ -147,7 +207,7 @@ class BuyAccountHandler
         }
 
         try {
-            $account = $this->accountService->purchase($user, $product, manualPanel: $manualPanel, salesChannel: 'main_bot');
+            $account = $this->accountService->purchase($user, $product, manualPanel: $manualPanel, salesChannel: 'main_bot', customUsername: $customUsername);
         } catch (InsufficientBalanceException) {
             $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'موجودی کیف پول کافی نیست.']);
 

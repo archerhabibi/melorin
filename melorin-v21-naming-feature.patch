@@ -1,0 +1,429 @@
+diff -ruN patch_old/app/Channels/TelegramBot/Handlers/BuyAccountHandler.php patch_new/app/Channels/TelegramBot/Handlers/BuyAccountHandler.php
+--- a/app/Channels/TelegramBot/Handlers/BuyAccountHandler.php	2026-08-19 21:15:41.124915154 +0000
++++ b/app/Channels/TelegramBot/Handlers/BuyAccountHandler.php	2026-08-19 21:15:41.126272328 +0000
+@@ -85,17 +85,15 @@
+      * وقتی سبد فروشِ محصول در حالت انتخاب دستی سرور است (بند ۶.۱)، قبل
+      * از خرید، لیست سرورهای مجاز آن دسته‌بندی نمایش داده می‌شود تا کاربر
+      * خودش انتخاب کند از کدام سرور اکانت بگیرد؛ در غیر این صورت مستقیم
+-     * سراغ purchase() (با انتخاب خودکار سرور توسط AccountService) می‌رود.
+-     * این همان قدمی بود که در این هندلر جا افتاده بود — AccountService از
+-     * قبل $manualPanel را پشتیبانی می‌کرد، فقط این لایه هیچ‌وقت آن را پر
+-     * نمی‌کرد.
++     * سراغ proceedAfterServer() (که خودش تصمیم می‌گیرد نام دلخواه بپرسد
++     * یا مستقیم بخرد) می‌رود.
+      */
+     public function chooseServerOrPurchase(int $chatId, User $user, int $productId): void
+     {
+         $product = Product::query()->with('category')->where('status', 'active')->findOrFail($productId);
+ 
+         if ($product->category->server_selection_mode !== 'manual') {
+-            $this->purchase($chatId, $user, $productId);
++            $this->proceedAfterServer($chatId, $user, $productId, null);
+ 
+             return;
+         }
+@@ -118,6 +116,66 @@
+     }
+ 
+     /**
++     * نقطه‌ی مشترکی که چه بعد از انتخاب خودکار سرور (بدون هیچ قدم اضافه)
++     * و چه بعد از انتخاب دستی سرور (بعد از callback «buy:server») به آن
++     * می‌رسیم. اگر سبد فروش روی نام‌گذاری دلخواه تنظیم شده باشد، همین‌جا
++     * نام را از کاربر می‌پرسد؛ وگرنه مستقیم می‌رود سراغ purchase().
++     */
++    public function proceedAfterServer(int $chatId, User $user, int $productId, ?int $panelId): void
++    {
++        $product = Product::query()->where('status', 'active')->findOrFail($productId);
++
++        if ($product->naming_mode !== 'custom') {
++            $this->purchase($chatId, $user, $productId, $panelId);
++
++            return;
++        }
++
++        $this->state->set($chatId, ConversationState::BUY_AWAITING_CUSTOM_NAME, [
++            'product_id' => $productId,
++            'panel_id' => $panelId,
++        ], $user);
++
++        $this->telegram->sendMessage([
++            'chat_id' => $chatId,
++            'text' => "✏️ یک نام دلخواه برای اکانت خود بفرستید:\n\nفقط حروف انگلیسی، عدد و _ مجاز است؛ باید با یک حرف شروع شود و بین ۳ تا ۲۰ کاراکتر باشد (مثال: myaccount1).",
++        ]);
++    }
++
++    /**
++     * ادامه‌ی جریان بعد از این‌که کاربر در پاسخ به proceedAfterServer()
++     * یک پیام متنی به‌عنوان نام دلخواه فرستاده. اعتبارسنجی فرمت اینجا،
++     * و یکتاسازیِ نهایی (افزودن عدد ترتیبی در صورت تکراری بودن) داخل
++     * AccountService::generateUsername انجام می‌شود.
++     */
++    public function handleCustomNameText(int $chatId, User $user, string $text): void
++    {
++        $state = $this->state->find($chatId);
++        $productId = $state->payload['product_id'] ?? null;
++        $panelId = $state->payload['panel_id'] ?? null;
++
++        if (! $productId) {
++            $this->state->reset($chatId);
++            $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'جریان خرید منقضی شده. لطفاً دوباره از ابتدا شروع کنید.']);
++
++            return;
++        }
++
++        $name = trim($text);
++
++        if (! preg_match('/^[A-Za-z][A-Za-z0-9_]{2,19}$/', $name)) {
++            $this->telegram->sendMessage([
++                'chat_id' => $chatId,
++                'text' => "نام نامعتبر است.\nفقط حروف انگلیسی، عدد و _ مجاز است؛ باید با حرف شروع شود و بین ۳ تا ۲۰ کاراکتر باشد.\nدوباره ارسال کنید:",
++            ]);
++
++            return; // در همین state می‌مانیم تا کاربر دوباره تلاش کند
++        }
++
++        $this->purchase($chatId, $user, (int) $productId, $panelId ? (int) $panelId : null, $name);
++    }
++
++    /**
+      * تلاش برای خرید. طبق بند ۹، پرداخت باید تأیید شده باشد؛ در نسخه‌ی
+      * ربات، «تأیید پرداخت» معادل کافی‌بودن موجودی کیف پول است — کیف پول
+      * باید از قبل (بخش 💰 کیف پول) شارژ شده باشد.
+@@ -125,8 +183,10 @@
+      * $panelId فقط وقتی پر است که کاربر از chooseServerOrPurchase() یک
+      * سرور مشخص انتخاب کرده باشد (حالت دستی)؛ در غیر این صورت null است و
+      * AccountService خودش طبق استراتژی پیش‌فرض یک سرور را انتخاب می‌کند.
++     * $customUsername فقط وقتی پر است که سبد فروش روی نام‌گذاری دلخواه
++     * تنظیم شده و کاربر از handleCustomNameText() یک نام معتبر فرستاده.
+      */
+-    public function purchase(int $chatId, User $user, int $productId, ?int $panelId = null): void
++    public function purchase(int $chatId, User $user, int $productId, ?int $panelId = null, ?string $customUsername = null): void
+     {
+         $product = Product::query()->where('status', 'active')->findOrFail($productId);
+         $manualPanel = $panelId ? \App\Models\ServerPanel::query()->where('status', 'active')->find($panelId) : null;
+@@ -147,7 +207,7 @@
+         }
+ 
+         try {
+-            $account = $this->accountService->purchase($user, $product, manualPanel: $manualPanel, salesChannel: 'main_bot');
++            $account = $this->accountService->purchase($user, $product, manualPanel: $manualPanel, salesChannel: 'main_bot', customUsername: $customUsername);
+         } catch (InsufficientBalanceException) {
+             $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'موجودی کیف پول کافی نیست.']);
+ 
+diff -ruN patch_old/app/Channels/TelegramBot/Support/ConversationState.php patch_new/app/Channels/TelegramBot/Support/ConversationState.php
+--- a/app/Channels/TelegramBot/Support/ConversationState.php	2026-08-19 21:15:41.138294901 +0000
++++ b/app/Channels/TelegramBot/Support/ConversationState.php	2026-08-19 21:15:41.139582340 +0000
+@@ -20,6 +20,11 @@
+ 
+     public const BUY_CHOOSE_SERVER = 'buy:choose_server';
+ 
++    // فقط وقتی سبد فروش روی naming_mode=custom تنظیم شده باشد؛ بعد از
++    // انتخاب محصول (و سرور، اگر انتخاب سرور دستی بود) و قبل از خرید
++    // نهایی، منتظر یک پیام متنیِ نام دلخواه از کاربر می‌ماند.
++    public const BUY_AWAITING_CUSTOM_NAME = 'buy:awaiting_custom_name';
++
+     public const WALLET_AWAITING_AMOUNT = 'wallet:awaiting_amount';
+ 
+     public const WALLET_CHOOSE_METHOD = 'wallet:choose_method';
+diff -ruN patch_old/app/Channels/TelegramBot/UpdateRouter.php patch_new/app/Channels/TelegramBot/UpdateRouter.php
+--- a/app/Channels/TelegramBot/UpdateRouter.php	2026-08-19 21:15:41.146702387 +0000
++++ b/app/Channels/TelegramBot/UpdateRouter.php	2026-08-19 21:15:41.150073452 +0000
+@@ -123,6 +123,7 @@
+             ConversationState::WALLET_AWAITING_AMOUNT => $this->wallet->handleCustomAmountText($chatId, $user, $text),
+             ConversationState::WALLET_AWAITING_DEPOSITOR_NAME => $this->wallet->handleDepositorName($chatId, $user, $text),
+             ConversationState::SUPPORT_AWAITING_MESSAGE => $this->misc->supportSubmit($chatId, $user, $text),
++            ConversationState::BUY_AWAITING_CUSTOM_NAME => $this->buy->handleCustomNameText($chatId, $user, $text),
+             default => $this->start->showMainMenu($chatId),
+         };
+     }
+@@ -157,7 +158,7 @@
+             return;
+         }
+ 
+-        $this->buy->purchase($chatId, $user, (int) $productId, (int) $panelId);
++        $this->buy->proceedAfterServer($chatId, $user, (int) $productId, (int) $panelId);
+     }
+ 
+     /**
+diff -ruN patch_old/app/Filament/Resources/ProductResource.php patch_new/app/Filament/Resources/ProductResource.php
+--- a/app/Filament/Resources/ProductResource.php	2026-08-19 21:15:41.161847842 +0000
++++ b/app/Filament/Resources/ProductResource.php	2026-08-19 21:15:41.163240565 +0000
+@@ -57,6 +57,16 @@
+                 ->searchable()
+                 ->preload(),
+ 
++            Forms\Components\Radio::make('naming_mode')
++                ->label('نام‌گذاری اکانت‌های این سبد فروش')
++                ->options([
++                    'random' => 'خودکار — الگوی «حروف‌اول‌سرور_حجم_شماره‌ترتیبی» (مثلاً ger_30_1)',
++                    'custom' => 'دلخواه — هنگام خرید از خریدار یک نام لاتین پرسیده شود',
++                ])
++                ->default('random')
++                ->required()
++                ->helperText('در حالت «دلخواه»، اگر نامی که کاربر وارد کرده قبلاً استفاده شده باشد، یک عدد ترتیبی به انتهای آن اضافه می‌شود.'),
++
+             Forms\Components\TextInput::make('sale_limit')
+                 ->label('محدودیت فروش (تعداد)')
+                 ->numeric()
+@@ -79,6 +89,9 @@
+                 Tables\Columns\TextColumn::make('price')->label('قیمت')->money('IRT', divideBy: 1)->sortable(),
+                 Tables\Columns\TextColumn::make('duration_days')->label('مدت (روز)'),
+                 Tables\Columns\TextColumn::make('traffic_gb')->label('حجم (گیگ)')->placeholder('نامحدود'),
++                Tables\Columns\BadgeColumn::make('naming_mode')->label('نام‌گذاری')
++                    ->formatStateUsing(fn (string $state): string => $state === 'custom' ? 'دلخواه' : 'خودکار')
++                    ->colors(['warning' => 'custom', 'gray' => 'random']),
+                 Tables\Columns\BadgeColumn::make('status')->label('وضعیت')
+                     ->colors(['success' => 'active', 'danger' => 'inactive']),
+             ])
+diff -ruN patch_old/app/Models/Product.php patch_new/app/Models/Product.php
+--- a/app/Models/Product.php	2026-08-19 21:15:41.155272877 +0000
++++ b/app/Models/Product.php	2026-08-19 21:15:41.156613068 +0000
+@@ -12,7 +12,7 @@
+ 
+     protected $fillable = [
+         'category_id', 'name', 'price', 'traffic_gb', 'duration_days',
+-        'protocol_id', 'status', 'sale_limit', 'allowed_panel_ids',
++        'protocol_id', 'status', 'sale_limit', 'allowed_panel_ids', 'naming_mode',
+     ];
+ 
+     protected $casts = [
+diff -ruN patch_old/app/Services/Core/AccountService.php patch_new/app/Services/Core/AccountService.php
+--- a/app/Services/Core/AccountService.php	2026-08-19 21:15:41.168373308 +0000
++++ b/app/Services/Core/AccountService.php	2026-08-19 21:15:41.169725730 +0000
+@@ -41,9 +41,10 @@
+         Product $product,
+         ?ServerPanel $manualPanel = null,
+         string $salesChannel = 'main_bot',
+-        ?\App\Models\Reseller $reseller = null
++        ?\App\Models\Reseller $reseller = null,
++        ?string $customUsername = null
+     ): Account {
+-        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller) {
++        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername) {
+ 
+             $soldPrice = $product->priceForReseller($reseller);
+ 
+@@ -81,7 +82,7 @@
+             // نوع پنل، از همان ابتدا در اختیار AccountService باشد و بتوان
+             // آن را برای عملیات بعدی (تمدید/حذف روی پنل‌هایی مثل Sanaei که
+             // با uuid کلاینت کار می‌کنند، نه فقط username) ذخیره کرد.
+-            $username = $this->generateUsername($user, $product);
++            $username = $this->generateUsername($product, $panel, $customUsername);
+             $clientUuid = (string) Str::uuid();
+             // subId فقط برای پنل‌هایی مثل سنایی معنا دارد (شناسه‌ی
+             // سرویس Subscription)، ولی چون تولیدش هیچ وابستگی به نوع پنل
+@@ -187,8 +188,72 @@
+         return $account;
+     }
+ 
+-    protected function generateUsername(User $user, Product $product): string
++    /**
++     * طبق درخواست صریح، تولید نام کاربری اکانت به naming_mode سبد فروش
++     * بستگی دارد:
++     *
++     * - custom: از نامی که کاربر در ربات وارد کرده استفاده می‌شود؛ اگر
++     *   آن نام از قبل روی جدول accounts موجود بود، عدد ترتیبی (۱، ۲، ...)
++     *   به انتهایش اضافه می‌شود تا یکتا شود. اگر سبد فروش روی custom
++     *   تنظیم شده ولی به هر دلیلی نامی نرسیده باشد (مثلاً فراخوانی مستقیم
++     *   AccountService بدون عبور از جریان ربات)، برای جلوگیری از خطا به
++     *   حالت random سقوط می‌کند.
++     * - random (پیش‌فرض): همیشه به‌صورت «حروف‌اول‌سرور_حجم_شماره‌ترتیبی»
++     *   ساخته می‌شود — برخلاف حالت custom، اینجا شماره‌ی ترتیبی همیشه
++     *   حاضر است، نه فقط در صورت تکرار (طبق متن دقیق درخواست).
++     */
++    protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null): string
+     {
+-        return 'melorin_' . $user->id . '_' . Str::lower(Str::random(6));
++        if ($product->naming_mode === 'custom' && $customUsername) {
++            return $this->uniqueUsername(Str::lower($customUsername), startBare: true);
++        }
++
++        return $this->uniqueUsername($this->randomUsernameBase($panel, $product), startBare: false);
++    }
++
++    /**
++     * «حروف اول اسم سرور»: اگر نام سرور چند کلمه‌ای بود (مثلاً «Germany
++     * Frankfurt»)، مخفف هر کلمه (GF)؛ اگر تک‌کلمه بود (مثلاً «Germany1»)،
++     * چون مخفف یک کلمه فقط یک حرف می‌شود و عملاً غیرقابل‌تشخیص است، سه
++     * حرف اول همان کلمه به‌جایش استفاده می‌شود (Ger). به‌علاوه‌ی حجم
++     * سبد فروش به‌صورت عدد صحیح گیگابایت (یا «unl» برای نامحدود).
++     */
++    protected function randomUsernameBase(ServerPanel $panel, Product $product): string
++    {
++        $words = array_values(array_filter(preg_split('/\s+/', trim($panel->name)) ?: []));
++
++        $initials = count($words) > 1
++            ? implode('', array_map(fn ($w) => Str::substr($w, 0, 1), $words))
++            : Str::substr($words[0] ?? 'srv', 0, 3);
++
++        $initials = Str::lower(preg_replace('/[^A-Za-z0-9]/', '', $initials)) ?: 'srv';
++
++        $volume = $product->traffic_gb ? (string) (int) round((float) $product->traffic_gb) : 'unl';
++
++        return "{$initials}_{$volume}";
++    }
++
++    /**
++     * اگر $startBare باشد و $base هنوز آزاد باشد، خودِ $base بدون هیچ
++     * پسوندی برگردانده می‌شود (رفتار موردنیاز حالت custom در اولین بار).
++     * در غیر این صورت (یا وقتی $base از قبل اشغال بود)، از عدد ۱ شروع به
++     * افزودن پسوند می‌کند تا به یک نام آزاد برسد (رفتار حالت random —
++     * که همیشه پسوند دارد — و رفتار حالت custom در صورت تکراری بودن).
++     */
++    protected function uniqueUsername(string $base, bool $startBare): string
++    {
++        $base = trim($base, '_') ?: 'user';
++
++        if ($startBare && ! Account::query()->where('panel_username', $base)->exists()) {
++            return $base;
++        }
++
++        $n = 1;
++        do {
++            $candidate = "{$base}_{$n}";
++            $n++;
++        } while (Account::query()->where('panel_username', $candidate)->exists());
++
++        return $candidate;
+     }
+ }
+diff -ruN patch_old/database/migrations/2024_02_05_000001_add_naming_mode_to_products_table.php patch_new/database/migrations/2024_02_05_000001_add_naming_mode_to_products_table.php
+--- a/database/migrations/2024_02_05_000001_add_naming_mode_to_products_table.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/migrations/2024_02_05_000001_add_naming_mode_to_products_table.php	2026-08-19 21:15:41.177805371 +0000
+@@ -0,0 +1,34 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * طبق درخواست صریح: هر سبد فروش (Product) باید بتواند مشخص کند نام
++ * کاربری اکانت‌های ساخته‌شده از آن چگونه تولید شود:
++ *
++ * - random (پیش‌فرض، رفتار فعلی): نامی خودکار از الگوی
++ *   «حروف اول نام سرور»_«حجم به گیگابایت»_«عدد ترتیبی» ساخته می‌شود
++ *   (مثلاً ger_30_1، ger_30_2، ...) — به AccountService::randomUsernameBase
++ *   نگاه کنید.
++ * - custom: هنگام خرید، بعد از انتخاب دسته‌بندی/سبد فروش (و سرور، اگر
++ *   دستی بود)، از کاربر یک نام لاتین دلخواه پرسیده می‌شود؛ اگر آن نام
++ *   قبلاً استفاده شده بود، یک عدد ترتیبی به انتهایش اضافه می‌شود.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('products', function (Blueprint $table) {
++            $table->enum('naming_mode', ['random', 'custom'])->default('random')->after('sale_limit');
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('products', function (Blueprint $table) {
++            $table->dropColumn('naming_mode');
++        });
++    }
++};
+diff -ruN patch_old/database/migrations/2024_02_05_000002_add_unique_index_to_accounts_panel_username.php patch_new/database/migrations/2024_02_05_000002_add_unique_index_to_accounts_panel_username.php
+--- a/database/migrations/2024_02_05_000002_add_unique_index_to_accounts_panel_username.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/migrations/2024_02_05_000002_add_unique_index_to_accounts_panel_username.php	2026-08-19 21:15:41.179132345 +0000
+@@ -0,0 +1,36 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * دفاع در عمق برای منطق یکتاسازی نام کاربری در AccountService (چه
++ * حالت random چه custom): چک "آیا این نام قبلاً استفاده شده؟" و درج
++ * رکورد جدید دو عملیات جدا هستند، پس تئوریاً در بار همزمانِ خیلی بالا
++ * دو خرید هم‌زمان می‌توانند هر دو یک نام را «آزاد» ببینند. این unique
++ * index تضمین می‌کند حتی در آن حالت نادر، دومی با خطای DB شکست بخورد
++ * (که مسیر موجود جبران/بازگشت وجه AccountService::purchase آن را
++ * می‌گیرد) به‌جای این‌که دو اکانت با یک نام روی دیتابیس ثبت شوند.
++ *
++ * توجه: اگر روی دیتابیس فعلی از قبل دو یا چند اکانت با panel_username
++ * یکسان ثبت شده باشد، این migration با خطای duplicate entry شکست
++ * می‌خورد — قبل از اجرا با کوئری زیر چک کنید:
++ *   SELECT panel_username, COUNT(*) c FROM accounts GROUP BY panel_username HAVING c > 1;
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('accounts', function (Blueprint $table) {
++            $table->unique('panel_username');
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('accounts', function (Blueprint $table) {
++            $table->dropUnique(['panel_username']);
++        });
++    }
++};
+diff -ruN patch_old/tests/Feature/AccountServiceTest.php patch_new/tests/Feature/AccountServiceTest.php
+--- a/tests/Feature/AccountServiceTest.php	2026-08-19 21:15:41.173886569 +0000
++++ b/tests/Feature/AccountServiceTest.php	2026-08-19 21:15:41.175166426 +0000
+@@ -123,4 +123,57 @@
+ 
+         $this->assertEquals($freePanel->id, $account->server_panel_id);
+     }
+-}
++
++    /** @test */
++    public function random_naming_mode_uses_server_initials_volume_and_a_sequential_number(): void
++    {
++        Http::fake([
++            '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
++            '*/api/user' => Http::response(['username' => 'irrelevant'], 200),
++        ]);
++
++        $panel = ServerPanel::factory()->create(['name' => 'Germany Frankfurt', 'panel_type' => 'marzban']);
++        $category = Category::factory()->create(['server_selection_mode' => 'auto']);
++        $category->serverPanels()->attach($panel);
++
++        // naming_mode پیش‌فرض DB برابر 'random' است — عمداً صریح ست نمی‌کنیم
++        // تا همان مسیر پیش‌فرض واقعی تست شود.
++        $product = Product::factory()->create(['category_id' => $category->id, 'price' => 10000, 'traffic_gb' => 30]);
++
++        $user1 = User::factory()->create();
++        $this->wallet->charge($user1, 10000);
++        $account1 = $this->accounts->purchase($user1, $product);
++
++        $user2 = User::factory()->create();
++        $this->wallet->charge($user2, 10000);
++        $account2 = $this->accounts->purchase($user2, $product);
++
++        // «حروف اول اسم سرور» چندکلمه‌ای → مخفف هر کلمه: Germany Frankfurt → gf
++        $this->assertEquals('gf_30_1', $account1->panel_username);
++        $this->assertEquals('gf_30_2', $account2->panel_username);
++    }
++
++    /** @test */
++    public function custom_naming_mode_uses_the_given_name_and_appends_a_number_on_duplicate(): void
++    {
++        Http::fake([
++            '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
++            '*/api/user' => Http::response(['username' => 'irrelevant'], 200),
++        ]);
++
++        $category = $this->makeCategoryWithPanel();
++        $product = Product::factory()->create(['category_id' => $category->id, 'price' => 10000, 'naming_mode' => 'custom']);
++
++        $user1 = User::factory()->create();
++        $this->wallet->charge($user1, 10000);
++        $account1 = $this->accounts->purchase($user1, $product, customUsername: 'ali');
++
++        $this->assertEquals('ali', $account1->panel_username);
++
++        // همان نام دوباره — چون تکراری است باید عدد ترتیبی بگیرد
++        $user2 = User::factory()->create();
++        $this->wallet->charge($user2, 10000);
++        $account2 = $this->accounts->purchase($user2, $product, customUsername: 'ali');
++
++        $this->assertEquals('ali_1', $account2->panel_username);
++    }

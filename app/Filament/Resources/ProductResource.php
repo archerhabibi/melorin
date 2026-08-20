@@ -57,6 +57,16 @@ class ProductResource extends Resource
                 ->searchable()
                 ->preload(),
 
+            Forms\Components\Radio::make('naming_mode')
+                ->label('نام‌گذاری اکانت‌های این سبد فروش')
+                ->options([
+                    'random' => 'خودکار — الگوی «حروف‌اول‌سرور_حجم_شماره‌ترتیبی» (مثلاً ger_30_1)',
+                    'custom' => 'دلخواه — هنگام خرید از خریدار یک نام لاتین پرسیده شود',
+                ])
+                ->default('random')
+                ->required()
+                ->helperText('در حالت «دلخواه»، اگر نامی که کاربر وارد کرده قبلاً استفاده شده باشد، یک عدد ترتیبی به انتهای آن اضافه می‌شود.'),
+
             Forms\Components\TextInput::make('sale_limit')
                 ->label('محدودیت فروش (تعداد)')
                 ->numeric()
@@ -79,6 +89,9 @@ class ProductResource extends Resource
                 Tables\Columns\TextColumn::make('price')->label('قیمت')->money('IRT', divideBy: 1)->sortable(),
                 Tables\Columns\TextColumn::make('duration_days')->label('مدت (روز)'),
                 Tables\Columns\TextColumn::make('traffic_gb')->label('حجم (گیگ)')->placeholder('نامحدود'),
+                Tables\Columns\BadgeColumn::make('naming_mode')->label('نام‌گذاری')
+                    ->formatStateUsing(fn (string $state): string => $state === 'custom' ? 'دلخواه' : 'خودکار')
+                    ->colors(['warning' => 'custom', 'gray' => 'random']),
                 Tables\Columns\BadgeColumn::make('status')->label('وضعیت')
                     ->colors(['success' => 'active', 'danger' => 'inactive']),
             ])

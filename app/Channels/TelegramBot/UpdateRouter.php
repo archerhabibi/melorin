@@ -123,6 +123,7 @@ class UpdateRouter
             ConversationState::WALLET_AWAITING_AMOUNT => $this->wallet->handleCustomAmountText($chatId, $user, $text),
             ConversationState::WALLET_AWAITING_DEPOSITOR_NAME => $this->wallet->handleDepositorName($chatId, $user, $text),
             ConversationState::SUPPORT_AWAITING_MESSAGE => $this->misc->supportSubmit($chatId, $user, $text),
+            ConversationState::BUY_AWAITING_CUSTOM_NAME => $this->buy->handleCustomNameText($chatId, $user, $text),
             default => $this->start->showMainMenu($chatId),
         };
     }
@@ -157,7 +158,7 @@ class UpdateRouter
             return;
         }
 
-        $this->buy->purchase($chatId, $user, (int) $productId, (int) $panelId);
+        $this->buy->proceedAfterServer($chatId, $user, (int) $productId, (int) $panelId);
     }
 
     /**

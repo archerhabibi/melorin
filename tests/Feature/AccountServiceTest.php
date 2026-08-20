@@ -123,4 +123,57 @@ class AccountServiceTest extends TestCase
 
         $this->assertEquals($freePanel->id, $account->server_panel_id);
     }
-}
+
+    /** @test */
+    public function random_naming_mode_uses_server_initials_volume_and_a_sequential_number(): void
+    {
+        Http::fake([
+            '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
+            '*/api/user' => Http::response(['username' => 'irrelevant'], 200),
+        ]);
+
+        $panel = ServerPanel::factory()->create(['name' => 'Germany Frankfurt', 'panel_type' => 'marzban']);
+        $category = Category::factory()->create(['server_selection_mode' => 'auto']);
+        $category->serverPanels()->attach($panel);
+
+        // naming_mode پیش‌فرض DB برابر 'random' است — عمداً صریح ست نمی‌کنیم
+        // تا همان مسیر پیش‌فرض واقعی تست شود.
+        $product = Product::factory()->create(['category_id' => $category->id, 'price' => 10000, 'traffic_gb' => 30]);
+
+        $user1 = User::factory()->create();
+        $this->wallet->charge($user1, 10000);
+        $account1 = $this->accounts->purchase($user1, $product);
+
+        $user2 = User::factory()->create();
+        $this->wallet->charge($user2, 10000);
+        $account2 = $this->accounts->purchase($user2, $product);
+
+        // «حروف اول اسم سرور» چندکلمه‌ای → مخفف هر کلمه: Germany Frankfurt → gf
+        $this->assertEquals('gf_30_1', $account1->panel_username);
+        $this->assertEquals('gf_30_2', $account2->panel_username);
+    }
+
+    /** @test */
+    public function custom_naming_mode_uses_the_given_name_and_appends_a_number_on_duplicate(): void
+    {
+        Http::fake([
+            '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
+            '*/api/user' => Http::response(['username' => 'irrelevant'], 200),
+        ]);
+
+        $category = $this->makeCategoryWithPanel();
+        $product = Product::factory()->create(['category_id' => $category->id, 'price' => 10000, 'naming_mode' => 'custom']);
+
+        $user1 = User::factory()->create();
+        $this->wallet->charge($user1, 10000);
+        $account1 = $this->accounts->purchase($user1, $product, customUsername: 'ali');
+
+        $this->assertEquals('ali', $account1->panel_username);
+
+        // همان نام دوباره — چون تکراری است باید عدد ترتیبی بگیرد
+        $user2 = User::factory()->create();
+        $this->wallet->charge($user2, 10000);
+        $account2 = $this->accounts->purchase($user2, $product, customUsername: 'ali');
+
+        $this->assertEquals('ali_1', $account2->panel_username);
+    }

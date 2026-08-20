@@ -41,9 +41,10 @@ class AccountService
         Product $product,
         ?ServerPanel $manualPanel = null,
         string $salesChannel = 'main_bot',
-        ?\App\Models\Reseller $reseller = null
+        ?\App\Models\Reseller $reseller = null,
+        ?string $customUsername = null
     ): Account {
-        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller) {
+        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername) {
 
             $soldPrice = $product->priceForReseller($reseller);
 
@@ -81,7 +82,7 @@ class AccountService
             // نوع پنل، از همان ابتدا در اختیار AccountService باشد و بتوان
             // آن را برای عملیات بعدی (تمدید/حذف روی پنل‌هایی مثل Sanaei که
             // با uuid کلاینت کار می‌کنند، نه فقط username) ذخیره کرد.
-            $username = $this->generateUsername($user, $product);
+            $username = $this->generateUsername($product, $panel, $customUsername);
             $clientUuid = (string) Str::uuid();
             // subId فقط برای پنل‌هایی مثل سنایی معنا دارد (شناسه‌ی
             // سرویس Subscription)، ولی چون تولیدش هیچ وابستگی به نوع پنل
@@ -187,8 +188,72 @@ class AccountService
         return $account;
     }
 
-    protected function generateUsername(User $user, Product $product): string
+    /**
+     * طبق درخواست صریح، تولید نام کاربری اکانت به naming_mode سبد فروش
+     * بستگی دارد:
+     *
+     * - custom: از نامی که کاربر در ربات وارد کرده استفاده می‌شود؛ اگر
+     *   آن نام از قبل روی جدول accounts موجود بود، عدد ترتیبی (۱، ۲، ...)
+     *   به انتهایش اضافه می‌شود تا یکتا شود. اگر سبد فروش روی custom
+     *   تنظیم شده ولی به هر دلیلی نامی نرسیده باشد (مثلاً فراخوانی مستقیم
+     *   AccountService بدون عبور از جریان ربات)، برای جلوگیری از خطا به
+     *   حالت random سقوط می‌کند.
+     * - random (پیش‌فرض): همیشه به‌صورت «حروف‌اول‌سرور_حجم_شماره‌ترتیبی»
+     *   ساخته می‌شود — برخلاف حالت custom، اینجا شماره‌ی ترتیبی همیشه
+     *   حاضر است، نه فقط در صورت تکرار (طبق متن دقیق درخواست).
+     */
+    protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null): string
     {
-        return 'melorin_' . $user->id . '_' . Str::lower(Str::random(6));
+        if ($product->naming_mode === 'custom' && $customUsername) {
+            return $this->uniqueUsername(Str::lower($customUsername), startBare: true);
+        }
+
+        return $this->uniqueUsername($this->randomUsernameBase($panel, $product), startBare: false);
+    }
+
+    /**
+     * «حروف اول اسم سرور»: اگر نام سرور چند کلمه‌ای بود (مثلاً «Germany
+     * Frankfurt»)، مخفف هر کلمه (GF)؛ اگر تک‌کلمه بود (مثلاً «Germany1»)،
+     * چون مخفف یک کلمه فقط یک حرف می‌شود و عملاً غیرقابل‌تشخیص است، سه
+     * حرف اول همان کلمه به‌جایش استفاده می‌شود (Ger). به‌علاوه‌ی حجم
+     * سبد فروش به‌صورت عدد صحیح گیگابایت (یا «unl» برای نامحدود).
+     */
+    protected function randomUsernameBase(ServerPanel $panel, Product $product): string
+    {
+        $words = array_values(array_filter(preg_split('/\s+/', trim($panel->name)) ?: []));
+
+        $initials = count($words) > 1
+            ? implode('', array_map(fn ($w) => Str::substr($w, 0, 1), $words))
+            : Str::substr($words[0] ?? 'srv', 0, 3);
+
+        $initials = Str::lower(preg_replace('/[^A-Za-z0-9]/', '', $initials)) ?: 'srv';
+
+        $volume = $product->traffic_gb ? (string) (int) round((float) $product->traffic_gb) : 'unl';
+
+        return "{$initials}_{$volume}";
+    }
+
+    /**
+     * اگر $startBare باشد و $base هنوز آزاد باشد، خودِ $base بدون هیچ
+     * پسوندی برگردانده می‌شود (رفتار موردنیاز حالت custom در اولین بار).
+     * در غیر این صورت (یا وقتی $base از قبل اشغال بود)، از عدد ۱ شروع به
+     * افزودن پسوند می‌کند تا به یک نام آزاد برسد (رفتار حالت random —
+     * که همیشه پسوند دارد — و رفتار حالت custom در صورت تکراری بودن).
+     */
+    protected function uniqueUsername(string $base, bool $startBare): string
+    {
+        $base = trim($base, '_') ?: 'user';
+
+        if ($startBare && ! Account::query()->where('panel_username', $base)->exists()) {
+            return $base;
+        }
+
+        $n = 1;
+        do {
+            $candidate = "{$base}_{$n}";
+            $n++;
+        } while (Account::query()->where('panel_username', $candidate)->exists());
+
+        return $candidate;
     }
 }

@@ -20,6 +20,11 @@ class ConversationState
 
     public const BUY_CHOOSE_SERVER = 'buy:choose_server';
 
+    // فقط وقتی سبد فروش روی naming_mode=custom تنظیم شده باشد؛ بعد از
+    // انتخاب محصول (و سرور، اگر انتخاب سرور دستی بود) و قبل از خرید
+    // نهایی، منتظر یک پیام متنیِ نام دلخواه از کاربر می‌ماند.
+    public const BUY_AWAITING_CUSTOM_NAME = 'buy:awaiting_custom_name';
+
     public const WALLET_AWAITING_AMOUNT = 'wallet:awaiting_amount';
 
     public const WALLET_CHOOSE_METHOD = 'wallet:choose_method';
