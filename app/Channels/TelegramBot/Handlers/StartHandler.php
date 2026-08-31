@@ -4,6 +4,7 @@ namespace App\Channels\TelegramBot\Handlers;
 
 use App\Channels\TelegramBot\Support\ConversationState;
 use App\Channels\TelegramBot\Support\Keyboards;
+use App\Models\TestAccountSetting;
 use App\Models\User;
 use Telegram\Bot\Api;
 
@@ -37,7 +38,7 @@ class StartHandler
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => 'به ربات ملورین خوش آمدید 🌐',
-            'reply_markup' => Keyboards::mainMenu(),
+            'reply_markup' => Keyboards::mainMenu(TestAccountSetting::current()->isUsable()),
         ]);
     }
 }

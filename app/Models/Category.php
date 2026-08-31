@@ -10,7 +10,7 @@ class Category extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'status', 'settings', 'server_selection_mode'];
+    protected $fillable = ['name', 'status', 'settings', 'server_selection_mode', 'naming_mode'];
 
     protected $casts = ['settings' => 'array'];
 

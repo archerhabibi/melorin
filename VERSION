@@ -1,0 +1,21 @@
+2.4.3
+
+شامل (نسبت به 2.4.2):
+- رفع باگِ برگشته (regression): Keyboards.php دوباره از کلاس Keyboard
+  خودِ SDK با الگوی ->row() داخل foreach استفاده می‌کرد که باعث خالی
+  ماندن کیبورد و خطای "object expected as reply markup" در
+  categoryList/productList/serverList/paymentMethods می‌شد (یعنی خرید
+  اکانت و انتخاب روش پرداخت عملاً کار نمی‌کردند). حالا هر متد مستقیماً
+  رشته‌ی JSON نهایی را برمی‌گرداند — دیگر به رفتار (string) کست کلاس
+  SDK متکی نیست.
+- رفع باگ: orders.sales_channel یک ENUM بود که مقدار 'test_account'
+  (استفاده‌شده در فیچر اکانت تست) را نداشت — یعنی هر تلاش برای دریافت
+  اکانت تست با خطای دیتابیس شکست می‌خورد. Migration جدید این مقدار را
+  به ENUM اضافه می‌کند.
+- رفع: tests/Feature/AccountServiceTest.php آکولاد بستن کلاس را کم
+  داشت (Parse Error موقع php artisan test).
+- شامل 2.4.2 (Naming Fixes + Test Account Feature) بدون تغییر دیگر.
+
+قدم بعدی روی سرور: همون مراحل همیشگی (update.sh با این زیپ کنارش)،
+بعد یک خرید تستی واقعی از ربات (نه فقط php artisan test) چون این باگ
+دقیقاً همان چیزی بود که فقط با تست واقعی روی ربات دیده می‌شد.

@@ -2,45 +2,76 @@
 
 namespace App\Channels\TelegramBot\Support;
 
-use Telegram\Bot\Keyboard\Keyboard;
-
 /**
  * منوهای ربات اصلی — دقیقاً مطابق بند ۳.۱ سند نیازمندی.
+ *
+ * نکته‌ی حیاتیِ رفع‌شده (باگ تکرارشونده): این کلاس قبلاً از
+ * Telegram\Bot\Keyboard\Keyboard (کلاس خودِ SDK) استفاده می‌کرد. برای
+ * کیبوردهایی که در یک foreach ساخته می‌شوند (categoryList, productList,
+ * serverList, paymentMethods)، متد ->row() داخل حلقه به‌صورت یک
+ * statement جدا صدا زده می‌شد (بدون $keyboard = $keyboard->row(...)).
+ * چون این متد یک نمونه‌ی *جدید* برمی‌گرداند نه این‌که خودِ آبجکت را
+ * تغییر بدهد، هر ردیفی که در حلقه اضافه می‌شد گم می‌شد و کیبورد نهایی
+ * همیشه خالی برمی‌گشت. یک آرایه‌ی PHP خالی وقتی به رشته تبدیل شود
+ * (چون SDK با (string) $params['reply_markup'] این کار را می‌کند)
+ * چیزی جز رشته‌ی نامعتبر "Array" یا JSON نامعتبر تولید نمی‌کند و تلگرام
+ * دقیقاً با این خطا آن را رد می‌کند:
+ *   «Bad Request: object expected as reply markup»
+ * و کل جریان (مثلاً «خرید اکانت» یا «شارژ کیف پول») با شکست ۵۰۰ متوقف
+ * می‌شد — بدون این‌که کاربر هیچ پیامی ببیند («هیچ اتفاقی نمی‌افتد»).
+ * این باگ دقیقاً یک‌بار دیگر هم در یک نسخه‌ی قبلی رفع و بعداً (احتمالاً
+ * در بازنویسی مجددِ این فایل توسط یک ابزار/نشست دیگر) دوباره برگشته بود.
+ *
+ * رفع نهایی و قطعی: این کلاس دیگر اصلاً از کلاس Keyboard خودِ SDK
+ * استفاده نمی‌کند — هر متد مستقیماً خودش رشته‌ی JSON نهایی و آماده
+ * (طبق ساختار استاندارد reply_markup تلگرام) را برمی‌گرداند. بنابراین
+ * صرف‌نظر از این‌که SDK چطور reply_markup را به رشته تبدیل می‌کند
+ * ((string) روی یک رشته‌ی از قبل آماده، خودِ همان رشته را برمی‌گرداند)،
+ * و صرف‌نظر از نسخه‌ی نصب‌شده‌ی SDK، نتیجه همیشه یک JSON معتبر است.
+ * همه‌ی call siteها (grep شد) مستقیم 'reply_markup' => Keyboards::xxx()
+ * هستند، پس نیازی به تغییر در جای دیگری از کدبیس نیست.
  */
 class Keyboards
 {
-    public static function mainMenu(): Keyboard
+    /**
+     * $testAccountEnabled: طبق سند ۰۷ («Incomplete Feature → Hidden، نه
+     * پیام به‌زودی»)، وقتی اکانت تست در تنظیمات ادمین فعال/usable نیست،
+     * دکمه‌اش اصلاً در منو نشان داده نمی‌شود.
+     */
+    public static function mainMenu(bool $testAccountEnabled = false): string
     {
-        return Keyboard::make()
-            ->setResizeKeyboard(true)
-            ->row(['🛒 خرید اکانت', '🔍 استعلام و تمدید اکانت'])
-            ->row(['💰 کیف پول و شارژ حساب', '👤 حساب کاربری'])
-            ->row(['🎁 دعوت از دوستان / زیرمجموعه‌گیری', '🧪 دریافت اکانت تست'])
-            ->row(['📜 قوانین خرید و آموزش', '🎧 پشتیبانی'])
-            ->row(['🤖 ربات مشتری / نماینده']);
+        $rows = [
+            ['🛒 خرید اکانت', '🔍 استعلام و تمدید اکانت'],
+            ['💰 کیف پول و شارژ حساب', '👤 حساب کاربری'],
+            $testAccountEnabled
+                ? ['🎁 دعوت از دوستان / زیرمجموعه‌گیری', '🧪 دریافت اکانت تست']
+                : ['🎁 دعوت از دوستان / زیرمجموعه‌گیری'],
+            ['📜 قوانین خرید و آموزش', '🎧 پشتیبانی'],
+            ['🤖 ربات مشتری / نماینده'],
+        ];
+
+        return self::encode(['keyboard' => $rows, 'resize_keyboard' => true]);
     }
 
     /** لیست دسته‌بندی‌ها (سبد فروش) به‌صورت این‌لاین کیبورد */
-    public static function categoryList(iterable $categories): Keyboard
+    public static function categoryList(iterable $categories): string
     {
-        $keyboard = Keyboard::make()->inline();
+        $rows = [];
 
         foreach ($categories as $category) {
-            $keyboard->row([
-                Keyboard::inlineButton([
-                    'text' => $category->name,
-                    'callback_data' => "buy:category:{$category->id}",
-                ]),
-            ]);
+            $rows[] = [[
+                'text' => $category->name,
+                'callback_data' => "buy:category:{$category->id}",
+            ]];
         }
 
-        return $keyboard;
+        return self::encode(['inline_keyboard' => $rows]);
     }
 
     /** لیست محصولات/تعرفه‌های یک دسته‌بندی */
-    public static function productList(iterable $products): Keyboard
+    public static function productList(iterable $products): string
     {
-        $keyboard = Keyboard::make()->inline();
+        $rows = [];
 
         foreach ($products as $product) {
             $label = sprintf(
@@ -51,19 +82,15 @@ class Keyboards
                 $product->traffic_gb ? ", {$product->traffic_gb} گیگ" : ''
             );
 
-            $keyboard->row([
-                Keyboard::inlineButton([
-                    'text' => $label,
-                    'callback_data' => "buy:product:{$product->id}",
-                ]),
-            ]);
+            $rows[] = [[
+                'text' => $label,
+                'callback_data' => "buy:product:{$product->id}",
+            ]];
         }
 
-        $keyboard->row([
-            Keyboard::inlineButton(['text' => '⬅️ بازگشت', 'callback_data' => 'buy:back_to_categories']),
-        ]);
+        $rows[] = [['text' => '⬅️ بازگشت', 'callback_data' => 'buy:back_to_categories']];
 
-        return $keyboard;
+        return self::encode(['inline_keyboard' => $rows]);
     }
 
     /**
@@ -72,61 +99,62 @@ class Keyboards
      * فقط تا سومین «:» می‌شکند و همان یک تکه‌ی آخر باید هر دو شناسه را
      * حمل کند.
      */
-    public static function serverList(iterable $panels, int $productId): Keyboard
+    public static function serverList(iterable $panels, int $productId): string
     {
-        $keyboard = Keyboard::make()->inline();
+        $rows = [];
 
         foreach ($panels as $panel) {
-            $keyboard->row([
-                Keyboard::inlineButton([
-                    'text' => $panel->name,
-                    'callback_data' => "buy:server:{$productId}_{$panel->id}",
-                ]),
-            ]);
+            $rows[] = [[
+                'text' => $panel->name,
+                'callback_data' => "buy:server:{$productId}_{$panel->id}",
+            ]];
         }
 
-        $keyboard->row([
-            Keyboard::inlineButton(['text' => '⬅️ بازگشت', 'callback_data' => 'buy:back_to_categories']),
-        ]);
+        $rows[] = [['text' => '⬅️ بازگشت', 'callback_data' => 'buy:back_to_categories']];
 
-        return $keyboard;
+        return self::encode(['inline_keyboard' => $rows]);
     }
 
-    public static function walletTopupAmounts(): Keyboard
+    public static function walletTopupAmounts(): string
     {
-        return Keyboard::make()->inline()
-            ->row([
-                Keyboard::inlineButton(['text' => '۵۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:50000']),
-                Keyboard::inlineButton(['text' => '۱۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:100000']),
-            ])
-            ->row([
-                Keyboard::inlineButton(['text' => '۲۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:200000']),
-                Keyboard::inlineButton(['text' => '✏️ مبلغ دلخواه', 'callback_data' => 'wallet:amount:custom']),
-            ]);
+        return self::encode(['inline_keyboard' => [
+            [
+                ['text' => '۵۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:50000'],
+                ['text' => '۱۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:100000'],
+            ],
+            [
+                ['text' => '۲۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:200000'],
+                ['text' => '✏️ مبلغ دلخواه', 'callback_data' => 'wallet:amount:custom'],
+            ],
+        ]]);
     }
 
-    public static function paymentMethods(iterable $methods): Keyboard
+    public static function paymentMethods(iterable $methods): string
     {
-        $keyboard = Keyboard::make()->inline();
+        $rows = [];
 
         foreach ($methods as $method) {
-            $keyboard->row([
-                Keyboard::inlineButton([
-                    'text' => $method->name,
-                    'callback_data' => "wallet:method:{$method->id}",
-                ]),
-            ]);
+            $rows[] = [[
+                'text' => $method->name,
+                'callback_data' => "wallet:method:{$method->id}",
+            ]];
         }
 
-        return $keyboard;
+        return self::encode(['inline_keyboard' => $rows]);
     }
 
-    public static function accountActions(int $accountId): Keyboard
+    public static function accountActions(int $accountId): string
     {
-        return Keyboard::make()->inline()
-            ->row([
-                Keyboard::inlineButton(['text' => '♻️ تمدید', 'callback_data' => "account:renew:{$accountId}"]),
-                Keyboard::inlineButton(['text' => '📱 دریافت کانفیگ / QR', 'callback_data' => "account:config:{$accountId}"]),
-            ]);
+        return self::encode(['inline_keyboard' => [
+            [
+                ['text' => '♻️ تمدید', 'callback_data' => "account:renew:{$accountId}"],
+                ['text' => '📱 دریافت کانفیگ / QR', 'callback_data' => "account:config:{$accountId}"],
+            ],
+        ]]);
+    }
+
+    private static function encode(array $markup): string
+    {
+        return json_encode($markup, JSON_UNESCAPED_UNICODE);
     }
 }

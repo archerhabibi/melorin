@@ -38,6 +38,16 @@ class CategoryResource extends Resource
                 ->native(false)
                 ->helperText('بند ۶ سند: در حالت خودکار، سیستم کم‌بارترین سرور مجاز را انتخاب می‌کند.'),
 
+            Forms\Components\Radio::make('naming_mode')
+                ->label('نام‌گذاری اکانت‌های این سبد فروش')
+                ->options([
+                    'random' => 'خودکار — الگوی «۴حرف‌اول‌سرور_حجم_شماره‌ترتیبی» (مثلاً germ_30_1)',
+                    'custom' => 'دلخواه — هنگام خرید از خریدار یک نام لاتین پرسیده شود',
+                ])
+                ->default('random')
+                ->required()
+                ->helperText('در حالت «دلخواه»، اگر نامی که کاربر وارد کرده قبلاً استفاده شده باشد، یک عدد ترتیبی به انتهای آن اضافه می‌شود.'),
+
             Forms\Components\Select::make('serverPanels')
                 ->label('سرورهای مجاز این دسته')
                 ->relationship('serverPanels', 'name')
@@ -60,6 +70,9 @@ class CategoryResource extends Resource
                 Tables\Columns\TextColumn::make('name')->label('نام')->searchable(),
                 Tables\Columns\TextColumn::make('server_selection_mode')->label('انتخاب سرور')
                     ->formatStateUsing(fn ($state) => $state === 'auto' ? 'خودکار' : 'دستی'),
+                Tables\Columns\BadgeColumn::make('naming_mode')->label('نام‌گذاری')
+                    ->formatStateUsing(fn (string $state): string => $state === 'custom' ? 'دلخواه' : 'خودکار')
+                    ->colors(['warning' => 'custom', 'gray' => 'random']),
                 Tables\Columns\TextColumn::make('serverPanels_count')->counts('serverPanels')->label('تعداد سرور'),
                 Tables\Columns\TextColumn::make('products_count')->counts('products')->label('تعداد محصول'),
                 Tables\Columns\BadgeColumn::make('status')->label('وضعیت')

@@ -3,10 +3,13 @@
 namespace App\Channels\TelegramBot\Handlers;
 
 use App\Channels\TelegramBot\Support\ConversationState;
+use App\Models\Account;
 use App\Models\AffiliateSetting;
+use App\Models\TestAccountSetting;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Core\AccountService;
 use Telegram\Bot\Api;
 
 /**
@@ -16,8 +19,14 @@ use Telegram\Bot\Api;
  */
 class MiscHandler
 {
-    public function __construct(protected Api $telegram, protected ConversationState $state)
-    {
+    public function __construct(
+        protected Api $telegram,
+        protected ConversationState $state,
+        protected AccountService $accountService,
+        // برای reuse مستقیم deliverConfig() به‌جای کپی/تکرار منطق تحویل
+        // کانفیگ+QR که در BuyAccountHandler از قبل تست‌شده وجود دارد
+        protected BuyAccountHandler $buyAccountHandler,
+    ) {
     }
 
     public function referral(int $chatId, User $user): void
@@ -43,12 +52,72 @@ class MiscHandler
         ]);
     }
 
-    public function testAccount(int $chatId): void
+    /**
+     * پیاده‌سازی کامل «اکانت تست» (طبق سند ۰۷: قابلیت باید یا کامل باشد
+     * یا از منو مخفی — نه پیام «به‌زودی» دائمی). دکمه‌ی منو خودش هم فقط
+     * وقتی نشان داده می‌شود که تنظیمات usable باشد (ر.ک.
+     * Keyboards::mainMenu)، پس رسیدن به اینجا با تنظیمات غیرفعال باید
+     * نادر باشد — ولی برای اطمینان دوباره چک می‌شود، چون کاربر می‌تواند
+     * متن دکمه را دستی هم بفرستد.
+     */
+    public function testAccount(int $chatId, User $user): void
     {
-        // TODO(بند ۱۵): جدول/مدل تنظیمات اکانت تست (فعال/غیرفعال، حجم،
-        // مدت، محدودیت تعداد و فاصله‌ی زمانی) در دیتابیس فعلی وجود ندارد
-        // و باید قبل از پیاده‌سازی کامل این بخش اضافه شود.
-        $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'دریافت اکانت تست به‌زودی فعال می‌شود.']);
+        $settings = TestAccountSetting::current();
+
+        if (! $settings->isUsable()) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => 'دریافت اکانت تست در حال حاضر غیرفعال است.',
+            ]);
+
+            return;
+        }
+
+        $usedCount = Account::query()
+            ->where('user_id', $user->id)
+            ->where('is_test', true)
+            ->count();
+
+        if ($usedCount >= $settings->max_per_user) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "شما قبلاً از سهمیه‌ی اکانت تست خود استفاده کرده‌اید (حداکثر مجاز: {$settings->max_per_user} بار).",
+            ]);
+
+            return;
+        }
+
+        $product = $settings->product;
+
+        if (! $product || $product->status !== 'active') {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => 'دریافت اکانت تست موقتاً در دسترس نیست — لطفاً بعداً تلاش کنید.',
+            ]);
+
+            return;
+        }
+
+        $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => '🧪 در حال ساخت اکانت تست شما...']);
+
+        try {
+            $account = $this->accountService->purchase(
+                $user,
+                $product,
+                salesChannel: 'test_account',
+                isTest: true,
+            );
+        } catch (\RuntimeException $e) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "دریافت اکانت تست ناموفق بود: {$e->getMessage()}\nلطفاً بعداً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.",
+            ]);
+
+            return;
+        }
+
+        $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => '✅ اکانت تست شما ساخته شد.']);
+        $this->buyAccountHandler->deliverConfig($chatId, $account);
     }
 
     public function supportStart(int $chatId, User $user): void
