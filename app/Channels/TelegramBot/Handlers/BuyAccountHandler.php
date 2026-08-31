@@ -123,9 +123,9 @@ class BuyAccountHandler
      */
     public function proceedAfterServer(int $chatId, User $user, int $productId, ?int $panelId): void
     {
-        $product = Product::query()->where('status', 'active')->findOrFail($productId);
+        $product = Product::query()->with('category')->where('status', 'active')->findOrFail($productId);
 
-        if ($product->naming_mode !== 'custom') {
+        if ($product->category->naming_mode !== 'custom') {
             $this->purchase($chatId, $user, $productId, $panelId);
 
             return;

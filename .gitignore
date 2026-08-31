@@ -44,3 +44,6 @@ auth.json
 /melorin-backups
 *.sql
 *.sql.gz
+
+# فایل webhook  برای وصل شدن به تلگرام !
+webhook.json

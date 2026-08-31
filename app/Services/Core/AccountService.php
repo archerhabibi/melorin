@@ -33,6 +33,13 @@ class AccountService
      * کاربر → انتخاب محصول → کسر از کیف پول → انتخاب سرور →
      * ساخت اکانت روی پنل → ثبت سفارش و اکانت.
      *
+     * $isTest=true برای مسیر «اکانت تست» است: چون قیمت محصول تست همیشه
+     * صفر است و WalletService::purchase() برای مبلغ صفر/منفی خطا می‌دهد
+     * (assertPositive)، در این حالت اصلاً کیف‌پول صدا زده نمی‌شود — ولی
+     * بقیه‌ی مسیر (انتخاب سرور، تولید نام کاربری طبق naming_mode، ساخت
+     * اکانت روی پنل، ثبت Order/Account) دقیقاً همان مسیر خرید واقعی
+     * است، فقط با is_test=true روی رکورد Account.
+     *
      * @throws InsufficientBalanceException
      * @throws \RuntimeException در صورت شکست ساخت اکانت روی پنل
      */
@@ -42,11 +49,12 @@ class AccountService
         ?ServerPanel $manualPanel = null,
         string $salesChannel = 'main_bot',
         ?\App\Models\Reseller $reseller = null,
-        ?string $customUsername = null
+        ?string $customUsername = null,
+        bool $isTest = false,
     ): Account {
-        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername) {
+        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername, $isTest) {
 
-            $soldPrice = $product->priceForReseller($reseller);
+            $soldPrice = $isTest ? 0.0 : $product->priceForReseller($reseller);
 
             // ۱. انتخاب سرور — دستی یا خودکار بسته به تنظیمات دسته‌بندی (بند ۶)
             $panel = $manualPanel ?? $this->serverSelection->select($product->category);
@@ -66,14 +74,18 @@ class AccountService
                 'status' => 'pending',
             ]);
 
-            // ۳. کسر مبلغ — از کیف پول نماینده (اگر فروش نمایندگی بود) یا کاربر
+            // ۳. کسر مبلغ — از کیف پول نماینده (اگر فروش نمایندگی بود) یا کاربر.
+            // برای اکانت تست، مبلغ همیشه صفر است پس اصلاً کیف‌پولی کسر نمی‌شود.
             $payer = $reseller ?? $user;
-            $this->walletService->purchase(
-                $payer,
-                (float) $soldPrice,
-                $order,
-                "خرید محصول «{$product->name}» — سفارش #{$order->id}"
-            );
+
+            if (! $isTest) {
+                $this->walletService->purchase(
+                    $payer,
+                    (float) $soldPrice,
+                    $order,
+                    "خرید محصول «{$product->name}» — سفارش #{$order->id}"
+                );
+            }
 
             $order->update(['status' => 'paid']);
 
@@ -105,8 +117,11 @@ class AccountService
             $result = $driver->createAccount($panel, $panelRequest);
 
             if (! $result->success) {
-                // بازگشت وجه در صورت شکست ساخت اکانت، تا کاربر متضرر نشود
-                $this->walletService->refund($payer, (float) $soldPrice, $order, 'بازگشت به دلیل خطای ساخت اکانت');
+                // بازگشت وجه در صورت شکست ساخت اکانت، تا کاربر متضرر نشود —
+                // برای اکانت تست چیزی کسر نشده بود، پس چیزی هم برنمی‌گردد
+                if (! $isTest) {
+                    $this->walletService->refund($payer, (float) $soldPrice, $order, 'بازگشت به دلیل خطای ساخت اکانت');
+                }
                 $order->update(['status' => 'failed']);
 
                 throw new \RuntimeException("ساخت اکانت روی پنل ناموفق بود: {$result->errorMessage}");
@@ -135,7 +150,7 @@ class AccountService
                 'expires_at' => now()->addDays($product->duration_days),
                 'traffic_gb' => $product->traffic_gb,
                 'status' => 'active',
-                'is_test' => false,
+                'is_test' => $isTest,
             ]);
 
             $order->update(['status' => 'account_created']);
@@ -204,7 +219,7 @@ class AccountService
      */
     protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null): string
     {
-        if ($product->naming_mode === 'custom' && $customUsername) {
+        if ($product->category->naming_mode === 'custom' && $customUsername) {
             return $this->uniqueUsername(Str::lower($customUsername), startBare: true);
         }
 
@@ -212,25 +227,20 @@ class AccountService
     }
 
     /**
-     * «حروف اول اسم سرور»: اگر نام سرور چند کلمه‌ای بود (مثلاً «Germany
-     * Frankfurt»)، مخفف هر کلمه (GF)؛ اگر تک‌کلمه بود (مثلاً «Germany1»)،
-     * چون مخفف یک کلمه فقط یک حرف می‌شود و عملاً غیرقابل‌تشخیص است، سه
-     * حرف اول همان کلمه به‌جایش استفاده می‌شود (Ger). به‌علاوه‌ی حجم
-     * سبد فروش به‌صورت عدد صحیح گیگابایت (یا «unl» برای نامحدود).
+     * طبق بازخورد صریح، به‌جای مخفف‌سازیِ چندکلمه‌ای (که خروجی‌اش برای
+     * سرورهای تک‌کلمه‌ای یا کوتاه گنگ می‌شد)، همیشه دقیقاً ۴ حرفِ اول
+     * نام سرور (بدون فاصله/کاراکتر خاص) گرفته می‌شود — هم ساده‌تر و
+     * قابل‌پیش‌بینی‌تر است، هم تضمین می‌کند «_» همیشه دقیقاً بین این
+     * پیشوند و حجم قرار بگیرد.
      */
     protected function randomUsernameBase(ServerPanel $panel, Product $product): string
     {
-        $words = array_values(array_filter(preg_split('/\s+/', trim($panel->name)) ?: []));
-
-        $initials = count($words) > 1
-            ? implode('', array_map(fn ($w) => Str::substr($w, 0, 1), $words))
-            : Str::substr($words[0] ?? 'srv', 0, 3);
-
-        $initials = Str::lower(preg_replace('/[^A-Za-z0-9]/', '', $initials)) ?: 'srv';
+        $letters = Str::lower(preg_replace('/[^A-Za-z0-9]/', '', $panel->name));
+        $prefix = Str::substr($letters, 0, 4) ?: 'srv';
 
         $volume = $product->traffic_gb ? (string) (int) round((float) $product->traffic_gb) : 'unl';
 
-        return "{$initials}_{$volume}";
+        return "{$prefix}_{$volume}";
     }
 
     /**

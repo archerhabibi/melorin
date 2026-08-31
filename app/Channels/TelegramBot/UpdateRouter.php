@@ -100,7 +100,7 @@ class UpdateRouter
             '💰 کیف پول و شارژ حساب' => $this->wallet->showBalance($chatId, $user),
             '👤 حساب کاربری' => $this->showProfile($chatId, $user),
             '🎁 دعوت از دوستان / زیرمجموعه‌گیری' => $this->misc->referral($chatId, $user),
-            '🧪 دریافت اکانت تست' => $this->misc->testAccount($chatId),
+            '🧪 دریافت اکانت تست' => $this->misc->testAccount($chatId, $user),
             '📜 قوانین خرید و آموزش' => $this->misc->rules($chatId),
             '🎧 پشتیبانی' => $this->misc->supportStart($chatId, $user),
             '🤖 ربات مشتری / نماینده' => $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'این بخش به‌زودی فعال می‌شود.']),
