@@ -11,10 +11,12 @@ use App\Models\User;
 use App\Services\Core\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Tests\Concerns\FakesTelegram;
 use Tests\TestCase;
 
 class RenewAccountFlowTest extends TestCase
 {
+    use FakesTelegram;
     use RefreshDatabase;
 
     protected function makeAccount(User $user, float $price = 100000): Account
@@ -37,10 +39,10 @@ class RenewAccountFlowTest extends TestCase
     /** @test */
     public function successful_renewal_deducts_wallet_and_extends_expiry(): void
     {
+        $this->fakeTelegram();
         Http::fake([
             '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
             '*/api/user/*' => Http::response(['username' => 'melorin_existing'], 200),
-            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 1]], 200),
         ]);
 
         $user = User::factory()->create(['telegram_id' => 555]);
@@ -61,10 +63,10 @@ class RenewAccountFlowTest extends TestCase
      */
     public function failed_panel_renewal_refunds_the_wallet_deduction(): void
     {
+        $this->fakeTelegram();
         Http::fake([
             '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
             '*/api/user/*' => Http::response(['detail' => 'panel unreachable'], 500),
-            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 1]], 200),
         ]);
 
         $user = User::factory()->create(['telegram_id' => 556]);
@@ -84,6 +86,7 @@ class RenewAccountFlowTest extends TestCase
     /** @test */
     public function insufficient_balance_never_touches_the_panel(): void
     {
+        $this->fakeTelegram();
         Http::fake();
 
         $user = User::factory()->create(['telegram_id' => 557]);

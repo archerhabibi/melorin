@@ -10,10 +10,12 @@ use App\Models\User;
 use App\Services\Core\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Tests\Concerns\FakesTelegram;
 use Tests\TestCase;
 
 class BuyAccountFlowTest extends TestCase
 {
+    use FakesTelegram;
     use RefreshDatabase;
 
     protected function makeCategoryWithPanel(): Category
@@ -28,6 +30,7 @@ class BuyAccountFlowTest extends TestCase
     /** @test */
     public function purchase_with_insufficient_wallet_balance_never_calls_the_panel(): void
     {
+        $this->fakeTelegram();
         Http::fake();
 
         $user = User::factory()->create(['telegram_id' => 111222333]);
@@ -43,10 +46,10 @@ class BuyAccountFlowTest extends TestCase
     /** @test */
     public function purchase_with_sufficient_balance_creates_account_and_delivers_config(): void
     {
+        $this->fakeTelegram();
         Http::fake([
             '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
             '*/api/user' => Http::response(['username' => 'melorin_test', 'subscription_url' => 'https://sub.example.com/x'], 200),
-            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 1]], 200),
         ]);
 
         $user = User::factory()->create(['telegram_id' => 111222333]);
@@ -70,7 +73,8 @@ class BuyAccountFlowTest extends TestCase
     /** @test */
     public function manual_server_selection_category_shows_server_list_instead_of_auto_purchasing(): void
     {
-        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 1]], 200)]);
+        $this->fakeTelegram();
+        Http::fake();
 
         $user = User::factory()->create(['telegram_id' => 111222333]);
         $panelX = ServerPanel::factory()->create(['panel_type' => 'marzban', 'name' => 'X']);
@@ -92,10 +96,10 @@ class BuyAccountFlowTest extends TestCase
     /** @test */
     public function purchasing_with_a_chosen_panel_id_uses_exactly_that_server(): void
     {
+        $this->fakeTelegram();
         Http::fake([
             '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
             '*/api/user' => Http::response(['username' => 'melorin_test', 'subscription_url' => 'https://sub.example.com/x'], 200),
-            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 1]], 200),
         ]);
 
         $user = User::factory()->create(['telegram_id' => 111222333]);

@@ -51,8 +51,10 @@ class AccountService
         ?\App\Models\Reseller $reseller = null,
         ?string $customUsername = null,
         bool $isTest = false,
+        ?int $testTrafficMb = null,
+        ?int $testDurationHours = null,
     ): Account {
-        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername, $isTest) {
+        return DB::transaction(function () use ($user, $product, $manualPanel, $salesChannel, $reseller, $customUsername, $isTest, $testTrafficMb, $testDurationHours) {
 
             $soldPrice = $isTest ? 0.0 : $product->priceForReseller($reseller);
 
@@ -89,6 +91,23 @@ class AccountService
 
             $order->update(['status' => 'paid']);
 
+            // برای اکانت تست، حجم/مدت را (اگر ادمین در تنظیمات اکانت تست
+            // مقداردهی کرده باشد) مستقل از traffic_gb/duration_days خودِ
+            // محصول محاسبه می‌کنیم — محصول فقط دسته‌بندی/پروتکل/سرورهای
+            // مجاز را تعیین می‌کند، طبق بندهای «حجم تست» و «مدت اعتبار»
+            // در سند نیازمندی.
+            $trafficBytes = ($isTest && $testTrafficMb !== null)
+                ? $testTrafficMb * 1024 ** 2
+                : ($product->traffic_gb ? (int) ($product->traffic_gb * 1024 ** 3) : 0);
+
+            $expiresAt = ($isTest && $testDurationHours !== null)
+                ? now()->addHours($testDurationHours)
+                : now()->addDays($product->duration_days);
+
+            $accountTrafficGb = ($isTest && $testTrafficMb !== null)
+                ? round($testTrafficMb / 1024, 4)
+                : $product->traffic_gb;
+
             // ۴. ساخت اکانت روی پنل واقعی
             // uuid را همین‌جا (نه داخل درایور) تولید می‌کنیم تا صرف‌نظر از
             // نوع پنل، از همان ابتدا در اختیار AccountService باشد و بتوان
@@ -104,8 +123,8 @@ class AccountService
 
             $panelRequest = new PanelAccountRequest(
                 username: $username,
-                trafficBytes: $product->traffic_gb ? (int) ($product->traffic_gb * 1024 ** 3) : 0,
-                expireTimestamp: now()->addDays($product->duration_days)->timestamp,
+                trafficBytes: $trafficBytes,
+                expireTimestamp: $expiresAt->timestamp,
                 note: "melorin-order-{$order->id}",
                 extra: array_merge(
                     $panel->extra_settings ?? [],
@@ -147,8 +166,8 @@ class AccountService
                 'subscription_url' => $result->subscriptionUrl,
                 'config_data' => json_encode(['raw' => $result->rawResponse]),
                 'starts_at' => now(),
-                'expires_at' => now()->addDays($product->duration_days),
-                'traffic_gb' => $product->traffic_gb,
+                'expires_at' => $expiresAt,
+                'traffic_gb' => $accountTrafficGb,
                 'status' => 'active',
                 'is_test' => $isTest,
             ]);
