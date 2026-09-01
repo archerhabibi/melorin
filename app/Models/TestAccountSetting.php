@@ -11,11 +11,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class TestAccountSetting extends Model
 {
-    protected $fillable = ['enabled', 'product_id', 'max_per_user'];
+    protected $fillable = ['enabled', 'product_id', 'max_per_user', 'traffic_mb', 'duration_hours'];
 
     protected $casts = [
         'enabled' => 'boolean',
         'max_per_user' => 'integer',
+        'traffic_mb' => 'integer',
+        'duration_hours' => 'integer',
     ];
 
     /** تنظیمات فعال سیستم (تک‌رکوردی) */
