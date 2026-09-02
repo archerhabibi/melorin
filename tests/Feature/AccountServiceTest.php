@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\InsufficientBalanceException;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ServerPanel;
@@ -17,6 +18,7 @@ class AccountServiceTest extends TestCase
     use RefreshDatabase;
 
     protected AccountService $accounts;
+
     protected WalletService $wallet;
 
     protected function setUp(): void
@@ -44,7 +46,7 @@ class AccountServiceTest extends TestCase
         $category = $this->makeCategoryWithPanel();
         $product = Product::factory()->create(['category_id' => $category->id, 'price' => 100000]);
 
-        $this->expectException(\App\Exceptions\InsufficientBalanceException::class);
+        $this->expectException(InsufficientBalanceException::class);
 
         $this->accounts->purchase($user, $product);
 
@@ -150,7 +152,7 @@ class AccountServiceTest extends TestCase
 
         // ۴ حرف اول نام سرور (بدون فاصله): Germany Frankfurt → germ
         $this->assertEquals('germ_30_1', $account1->panel_username);
-        $this->assertEquals('germ_30_2', $account2->panel_username);
+        $this->assertEquals('germ_30_1a', $account2->panel_username);
     }
 
     /** @test */

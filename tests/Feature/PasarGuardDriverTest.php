@@ -37,7 +37,7 @@ class PasarGuardDriverTest extends TestCase
         ]);
 
         $panel = $this->makePanel();
-        $driver = new PasarGuardDriver();
+        $driver = new PasarGuardDriver;
 
         $result = $driver->createAccount($panel, new PanelAccountRequest(
             username: 'melorin_test',
@@ -62,7 +62,7 @@ class PasarGuardDriverTest extends TestCase
         ]);
 
         $panel = $this->makePanel();
-        $driver = new PasarGuardDriver();
+        $driver = new PasarGuardDriver;
 
         $driver->createAccount($panel, new PanelAccountRequest(
             username: 'melorin_test',
@@ -86,7 +86,7 @@ class PasarGuardDriverTest extends TestCase
         ]);
 
         $panel = $this->makePanel();
-        $driver = new PasarGuardDriver();
+        $driver = new PasarGuardDriver;
 
         $result = $driver->createAccount($panel, new PanelAccountRequest(
             username: 'melorin_test',
@@ -107,7 +107,7 @@ class PasarGuardDriverTest extends TestCase
         ]);
 
         $panel = $this->makePanel();
-        $driver = new PasarGuardDriver();
+        $driver = new PasarGuardDriver;
 
         $result = $driver->deleteAccount($panel, 'melorin_test');
 

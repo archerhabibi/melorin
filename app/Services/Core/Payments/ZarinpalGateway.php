@@ -90,7 +90,7 @@ class ZarinpalGateway implements PaymentGatewayInterface
 
     public function initiate(Payment $payment): GatewayInitiationResult
     {
-        $response = Http::post($this->baseUrl($payment) . '/request.json', [
+        $response = Http::post($this->baseUrl($payment).'/request.json', [
             'merchant_id' => $this->merchantId($payment),
             'amount' => $this->amountInRials($payment),
             'callback_url' => $this->callbackUrl($payment),
@@ -121,7 +121,7 @@ class ZarinpalGateway implements PaymentGatewayInterface
             return GatewayVerificationResult::fail('کاربر پرداخت را در زرین‌پال لغو یا ناموفق کرد.', $callbackData);
         }
 
-        $response = Http::post($this->baseUrl($payment) . '/verify.json', [
+        $response = Http::post($this->baseUrl($payment).'/verify.json', [
             'merchant_id' => $this->merchantId($payment),
             'amount' => $this->amountInRials($payment),
             'authority' => $payment->gateway_reference,

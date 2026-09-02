@@ -121,7 +121,7 @@ class WalletService
             $newBalance = (float) $wallet->balance + $signedAmount;
 
             if ($newBalance < 0) {
-                throw new InsufficientBalanceException();
+                throw new InsufficientBalanceException;
             }
 
             $wallet->update(['balance' => $newBalance]);

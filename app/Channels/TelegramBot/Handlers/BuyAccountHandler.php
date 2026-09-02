@@ -6,12 +6,15 @@ use App\Channels\TelegramBot\Support\ConversationState;
 use App\Channels\TelegramBot\Support\Keyboards;
 use App\Channels\TelegramBot\Support\QrCodeGenerator;
 use App\Exceptions\InsufficientBalanceException;
+use App\Models\Account;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ServerPanel;
 use App\Models\User;
 use App\Services\Core\AccountService;
 use App\Services\Core\WalletService;
 use Telegram\Bot\Api;
+use Telegram\Bot\FileUpload\InputFile;
 
 /**
  * جریان «🛒 خرید اکانت» — دقیقاً مطابق نمودار بند ۳۳ سند نیازمندی:
@@ -31,8 +34,7 @@ class BuyAccountHandler
         protected AccountService $accountService,
         protected WalletService $walletService,
         protected QrCodeGenerator $qr,
-    ) {
-    }
+    ) {}
 
     public function start(int $chatId, User $user): void
     {
@@ -51,12 +53,12 @@ class BuyAccountHandler
         // برای اطمینان خود کاربر که با حساب درست وارد شده، هم برای
         // تشخیص سریع‌تر مشکلات مشابه (کسر از حساب اشتباه) در آینده.
         $accountInfo = "👤 {$user->full_name}\n"
-            . "شناسه‌ی عددی تلگرام: {$user->telegram_id}\n"
-            . '💰 موجودی کیف پول: ' . number_format($this->walletService->balance($user)) . " تومان\n";
+            ."شناسه‌ی عددی تلگرام: {$user->telegram_id}\n"
+            .'💰 موجودی کیف پول: '.number_format($this->walletService->balance($user))." تومان\n";
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => $accountInfo . "\nیک سبد فروش انتخاب کنید:",
+            'text' => $accountInfo."\nیک سبد فروش انتخاب کنید:",
             'reply_markup' => Keyboards::categoryList($categories),
         ]);
     }
@@ -189,7 +191,7 @@ class BuyAccountHandler
     public function purchase(int $chatId, User $user, int $productId, ?int $panelId = null, ?string $customUsername = null): void
     {
         $product = Product::query()->where('status', 'active')->findOrFail($productId);
-        $manualPanel = $panelId ? \App\Models\ServerPanel::query()->where('status', 'active')->find($panelId) : null;
+        $manualPanel = $panelId ? ServerPanel::query()->where('status', 'active')->find($panelId) : null;
 
         if ($panelId && ! $manualPanel) {
             $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'این سرور دیگر در دسترس نیست. دوباره از ابتدا تلاش کنید.']);
@@ -200,7 +202,7 @@ class BuyAccountHandler
         if ($this->walletService->balance($user) < (float) $product->price) {
             $this->telegram->sendMessage([
                 'chat_id' => $chatId,
-                'text' => "موجودی کیف پول شما کافی نیست.\nقیمت این تعرفه: " . number_format((float) $product->price) . " تومان\nموجودی فعلی: " . number_format($this->walletService->balance($user)) . " تومان\n\nابتدا از بخش «💰 کیف پول و شارژ حساب» حساب خود را شارژ کنید.",
+                'text' => "موجودی کیف پول شما کافی نیست.\nقیمت این تعرفه: ".number_format((float) $product->price)." تومان\nموجودی فعلی: ".number_format($this->walletService->balance($user))." تومان\n\nابتدا از بخش «💰 کیف پول و شارژ حساب» حساب خود را شارژ کنید.",
             ]);
 
             return;
@@ -222,22 +224,26 @@ class BuyAccountHandler
         $this->deliverConfig($chatId, $account);
     }
 
-    public function deliverConfig(int $chatId, \App\Models\Account $account): void
+    public function deliverConfig(int $chatId, Account $account): void
     {
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => "✅ اکانت شما با موفقیت ساخته شد.\n\n"
-                . "نام کاربری: {$account->panel_username}\n"
-                . 'تاریخ انقضا: ' . $account->expires_at->format('Y-m-d') . "\n"
-                . ($account->traffic_gb ? "حجم: {$account->traffic_gb} گیگابایت\n" : '')
-                . "\n🔗 لینک سابسکریپشن:\n`" . $this->qr->scannableTextFor($account) . '`'
-                . "\n\nاین لینک را در اپلیکیشن VPN خود به‌عنوان سابسکریپشن اضافه کنید (نه یک کانفیگ تکی) تا با هر تغییر بعدی خودکار به‌روز بماند.",
+                .'نام کاربری: '.str_replace(
+                    ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'],
+                    ['\\\\', '\\_', '\\*', '\\[', '\\]', '\\(', '\\)', '\\~', '\\`', '\\>', '\\#', '\\+', '\\-', '\\=', '\\|', '\\{', '\\}', '\\.', '\\!'],
+                    $account->panel_username
+                )."\n"
+                .'تاریخ انقضا: '.$account->expires_at->format('Y-m-d')."\n"
+                .($account->traffic_gb ? "حجم: {$account->traffic_gb} گیگابایت\n" : '')
+                ."\n🔗 لینک سابسکریپشن:\n`".$this->qr->scannableTextFor($account).'`'
+                ."\n\nاین لینک را در اپلیکیشن VPN خود به‌عنوان سابسکریپشن اضافه کنید (نه یک کانفیگ تکی) تا با هر تغییر بعدی خودکار به‌روز بماند.",
             'parse_mode' => 'Markdown',
         ]);
 
         $this->telegram->sendPhoto([
             'chat_id' => $chatId,
-            'photo' => \Telegram\Bot\FileUpload\InputFile::createFromContents($this->qr->pngFor($account), 'subscription.png'),
+            'photo' => InputFile::createFromContents($this->qr->pngFor($account), 'subscription.png'),
             'caption' => '📱 یا این QR را در اپلیکیشن VPN خود اسکن کنید تا سابسکریپشن به‌صورت خودکار اضافه شود.',
         ]);
     }

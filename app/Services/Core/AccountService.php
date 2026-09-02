@@ -7,9 +7,11 @@ use App\Exceptions\InsufficientBalanceException;
 use App\Models\Account;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Reseller;
 use App\Models\ServerPanel;
 use App\Models\User;
 use App\Services\Core\Panels\PanelDriverFactory;
+use App\Services\Core\Panels\SupportsUsernameAvailability;
 use App\Services\Core\ServerSelection\ServerSelectionStrategy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -25,8 +27,7 @@ class AccountService
     public function __construct(
         protected WalletService $walletService,
         protected ServerSelectionStrategy $serverSelection,
-    ) {
-    }
+    ) {}
 
     /**
      * جریان کامل خرید:
@@ -48,7 +49,7 @@ class AccountService
         Product $product,
         ?ServerPanel $manualPanel = null,
         string $salesChannel = 'main_bot',
-        ?\App\Models\Reseller $reseller = null,
+        ?Reseller $reseller = null,
         ?string $customUsername = null,
         bool $isTest = false,
         ?int $testTrafficMb = null,
@@ -238,11 +239,23 @@ class AccountService
      */
     protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null): string
     {
+        $driver = PanelDriverFactory::make($panel->panel_type);
+
         if ($product->category->naming_mode === 'custom' && $customUsername) {
-            return $this->uniqueUsername(Str::lower($customUsername), startBare: true);
+            return $this->uniqueUsername(
+                Str::lower($customUsername),
+                startBare: true,
+                panel: $panel,
+                driver: $driver,
+            );
         }
 
-        return $this->uniqueUsername($this->randomUsernameBase($panel, $product), startBare: false);
+        return $this->uniqueUsername(
+            $this->randomUsernameBase($panel, $product),
+            startBare: false,
+            panel: $panel,
+            driver: $driver,
+        );
     }
 
     /**
@@ -269,20 +282,106 @@ class AccountService
      * افزودن پسوند می‌کند تا به یک نام آزاد برسد (رفتار حالت random —
      * که همیشه پسوند دارد — و رفتار حالت custom در صورت تکراری بودن).
      */
-    protected function uniqueUsername(string $base, bool $startBare): string
-    {
+    protected function uniqueUsername(
+        string $base,
+        bool $startBare,
+        ServerPanel $panel,
+        object $driver,
+    ): string {
         $base = trim($base, '_') ?: 'user';
 
-        if ($startBare && ! Account::query()->where('panel_username', $base)->exists()) {
-            return $base;
+        /*
+        * حالت custom:
+        * اگر خود نام آزاد باشد، همان را استفاده می‌کنیم.
+        *
+        * توجه:
+        * برای custom فعلاً همان رفتار قبلی حفظ شده و در صورت
+        * تکراری بودن از _1، _2، ... استفاده می‌کنیم.
+        */
+        if ($startBare) {
+            if (
+                ! Account::query()
+                    ->where('panel_username', $base)
+                    ->exists()
+                && ! $this->usernameExistsOnPanel($driver, $panel, $base)
+            ) {
+                return $base;
+            }
+
+            $n = 1;
+
+            while (true) {
+                $candidate = "{$base}_{$n}";
+
+                if (
+                    ! Account::query()
+                        ->where('panel_username', $candidate)
+                        ->exists()
+                    && ! $this->usernameExistsOnPanel($driver, $panel, $candidate)
+                ) {
+                    return $candidate;
+                }
+
+                $n++;
+            }
         }
 
-        $n = 1;
-        do {
-            $candidate = "{$base}_{$n}";
-            $n++;
-        } while (Account::query()->where('panel_username', $candidate)->exists());
+        /*
+        * حالت random:
+        *
+        * base:
+        *   vip1_20
+        *
+        * ترتیب:
+        *   vip1_20_1
+        *   vip1_20_1a
+        *   vip1_20_1b
+        *   ...
+        *   vip1_20_1z
+        *   vip1_20_2
+        *   vip1_20_2a
+        *   ...
+        */
+        $sequence = 1;
 
-        return $candidate;
+        while (true) {
+            $numberCandidate = "{$base}_{$sequence}";
+
+            if (
+                ! Account::query()
+                    ->where('panel_username', $numberCandidate)
+                    ->exists()
+                && ! $this->usernameExistsOnPanel($driver, $panel, $numberCandidate)
+            ) {
+                return $numberCandidate;
+            }
+
+            foreach (range('a', 'z') as $letter) {
+                $candidate = "{$base}_{$sequence}{$letter}";
+
+                if (
+                    ! Account::query()
+                        ->where('panel_username', $candidate)
+                        ->exists()
+                    && ! $this->usernameExistsOnPanel($driver, $panel, $candidate)
+                ) {
+                    return $candidate;
+                }
+            }
+
+            $sequence++;
+        }
+    }
+
+    protected function usernameExistsOnPanel(
+        object $driver,
+        ServerPanel $panel,
+        string $username,
+    ): bool {
+        if ($driver instanceof SupportsUsernameAvailability) {
+            return $driver->usernameExists($panel, $username);
+        }
+
+        return false;
     }
 }

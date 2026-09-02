@@ -11,7 +11,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class Admin extends Authenticatable implements FilamentUser
 {
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory, HasRoles, Notifiable;
 
     protected $guard_name = 'admin';
 

@@ -4,6 +4,7 @@ namespace App\Channels\TelegramBot\Handlers;
 
 use App\Channels\TelegramBot\Support\ConversationState;
 use App\Channels\TelegramBot\Support\Keyboards;
+use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\Core\PaymentService;
@@ -22,8 +23,7 @@ class WalletHandler
         protected ConversationState $state,
         protected WalletService $walletService,
         protected PaymentService $paymentService,
-    ) {
-    }
+    ) {}
 
     public function showBalance(int $chatId, User $user): void
     {
@@ -31,7 +31,7 @@ class WalletHandler
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => '💰 موجودی کیف پول شما: ' . number_format($balance) . " تومان\n\nبرای شارژ، مبلغ را انتخاب کنید:",
+            'text' => '💰 موجودی کیف پول شما: '.number_format($balance)." تومان\n\nبرای شارژ، مبلغ را انتخاب کنید:",
             'reply_markup' => Keyboards::walletTopupAmounts(),
         ]);
     }
@@ -118,7 +118,7 @@ class WalletHandler
         $this->state->reset($chatId);
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "برای پرداخت آنلاین روی لینک زیر بروید:\n" . ($initiation->redirectUrl ?? 'لینک پرداخت در دسترس نیست، لطفاً بعداً تلاش کنید.'),
+            'text' => "برای پرداخت آنلاین روی لینک زیر بروید:\n".($initiation->redirectUrl ?? 'لینک پرداخت در دسترس نیست، لطفاً بعداً تلاش کنید.'),
         ]);
     }
 
@@ -131,7 +131,7 @@ class WalletHandler
             return;
         }
 
-        $payment = \App\Models\Payment::query()->find($paymentId);
+        $payment = Payment::query()->find($paymentId);
         // fileId تلگرام همین‌جا به‌عنوان مرجع رسید ذخیره می‌شود؛ دانلود و
         // ذخیره‌ی فایل واقعی روی storage در پیاده‌سازی نهایی باید از طریق
         // Api::getFile() انجام شود.
@@ -167,7 +167,7 @@ class WalletHandler
             return;
         }
 
-        \App\Models\Payment::query()->whereKey($paymentId)->update(['depositor_name' => $depositorName]);
+        Payment::query()->whereKey($paymentId)->update(['depositor_name' => $depositorName]);
 
         $this->state->reset($chatId);
 

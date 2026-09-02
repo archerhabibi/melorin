@@ -26,8 +26,7 @@ class MiscHandler
         // برای reuse مستقیم deliverConfig() به‌جای کپی/تکرار منطق تحویل
         // کانفیگ+QR که در BuyAccountHandler از قبل تست‌شده وجود دارد
         protected BuyAccountHandler $buyAccountHandler,
-    ) {
-    }
+    ) {}
 
     public function referral(int $chatId, User $user): void
     {
@@ -37,10 +36,10 @@ class MiscHandler
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => "🎁 لینک دعوت اختصاصی شما:\nhttps://t.me/{$botUsername}?start={$user->id}\n\n"
-                . "تعداد زیرمجموعه‌ها: {$user->referredUsers()->count()}\n"
-                . "پاداش خرید اول: " . number_format((float) $settings->customer_bonus_amount) . " تومان به شما، "
-                . number_format((float) $settings->referrer_bonus_amount) . " تومان به معرف\n"
-                . "کمیسیون خریدهای بعدی: {$settings->commission_percent}٪",
+                ."تعداد زیرمجموعه‌ها: {$user->referredUsers()->count()}\n"
+                .'پاداش خرید اول: '.number_format((float) $settings->customer_bonus_amount).' تومان به شما، '
+                .number_format((float) $settings->referrer_bonus_amount)." تومان به معرف\n"
+                ."کمیسیون خریدهای بعدی: {$settings->commission_percent}٪",
         ]);
     }
 

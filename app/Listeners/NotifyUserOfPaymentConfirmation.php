@@ -17,9 +17,7 @@ use Telegram\Bot\Api;
  */
 class NotifyUserOfPaymentConfirmation
 {
-    public function __construct(protected Api $telegram)
-    {
-    }
+    public function __construct(protected Api $telegram) {}
 
     public function handle(PaymentConfirmed $event): void
     {

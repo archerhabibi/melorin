@@ -14,6 +14,5 @@ class PanelAccountRequest
         public readonly int $expireTimestamp, // ۰ = بدون انقضا
         public readonly ?string $note = null,
         public readonly array $extra = [],    // پارامترهای اختصاصی پنل (inbound id و ...)
-    ) {
-    }
+    ) {}
 }

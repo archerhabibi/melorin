@@ -88,7 +88,7 @@ class UserResource extends Resource
 
                             Notification::make()->title('موجودی با موفقیت به‌روزرسانی شد.')->success()->send();
                         } catch (\Throwable $e) {
-                            Notification::make()->title('خطا: ' . $e->getMessage())->danger()->send();
+                            Notification::make()->title('خطا: '.$e->getMessage())->danger()->send();
                         }
                     }),
             ]);

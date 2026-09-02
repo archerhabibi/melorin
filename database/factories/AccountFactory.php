@@ -21,7 +21,7 @@ class AccountFactory extends Factory
             'order_id' => Order::factory(),
             'product_id' => Product::factory(),
             'server_panel_id' => ServerPanel::factory(),
-            'panel_username' => 'melorin_' . Str::lower(Str::random(8)),
+            'panel_username' => 'melorin_'.Str::lower(Str::random(8)),
             'config_data' => json_encode(['note' => 'test']),
             'starts_at' => now(),
             'expires_at' => now()->addDays(30),

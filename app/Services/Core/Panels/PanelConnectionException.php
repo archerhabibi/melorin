@@ -4,6 +4,4 @@ namespace App\Services\Core\Panels;
 
 use Exception;
 
-class PanelConnectionException extends Exception
-{
-}
+class PanelConnectionException extends Exception {}

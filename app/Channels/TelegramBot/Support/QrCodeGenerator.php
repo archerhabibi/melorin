@@ -53,7 +53,7 @@ class QrCodeGenerator
     public function pngFor(Account $account): string
     {
         $result = (new Builder(
-            writer: new PngWriter(),
+            writer: new PngWriter,
             data: $this->scannableTextFor($account),
             size: 400,
             margin: 10,

@@ -1,8 +1,13 @@
 <?php
 
+use App\Channels\TelegramBot\TelegramBotServiceProvider;
+use App\Providers\AppServiceProvider;
+use App\Providers\CoreServiceProvider;
+use App\Providers\Filament\AdminPanelProvider;
+
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\Filament\AdminPanelProvider::class,
-    App\Providers\CoreServiceProvider::class,
-    App\Channels\TelegramBot\TelegramBotServiceProvider::class,
+    AppServiceProvider::class,
+    AdminPanelProvider::class,
+    CoreServiceProvider::class,
+    TelegramBotServiceProvider::class,
 ];

@@ -21,8 +21,7 @@ class PanelAccountResult
         public readonly ?string $subscriptionUrl = null,
         public readonly ?string $errorMessage = null,
         public readonly array $panelExtra = [],
-    ) {
-    }
+    ) {}
 
     public static function fail(string $message, ?array $raw = null): self
     {

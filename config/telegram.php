@@ -38,4 +38,3 @@ return [
         explode(',', env('TELEGRAM_ADMIN_IDS', ''))
     )),
 ];
-

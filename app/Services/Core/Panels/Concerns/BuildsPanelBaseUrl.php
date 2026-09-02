@@ -29,7 +29,7 @@ trait BuildsPanelBaseUrl
         $raw = trim($panel->host);
 
         if (! preg_match('#^https?://#i', $raw)) {
-            $raw = 'https://' . $raw;
+            $raw = 'https://'.$raw;
         }
 
         $parsed = parse_url(rtrim($raw, '/'));
@@ -77,6 +77,6 @@ trait BuildsPanelBaseUrl
             return $url;
         }
 
-        return $this->subBaseUrl($panel) . '/' . ltrim($url, '/');
+        return $this->subBaseUrl($panel).'/'.ltrim($url, '/');
     }
 }

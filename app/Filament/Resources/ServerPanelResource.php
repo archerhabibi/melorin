@@ -4,11 +4,14 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ServerPanelResource\Pages;
 use App\Models\ServerPanel;
+use App\Services\Core\Panels\PanelDriverFactory;
+use App\Services\Core\Panels\SupportsServerStatus;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\HtmlString;
 
 /**
  * مدیریت سرورها و پنل‌ها (بند ۵ سند نیازمندی).
@@ -136,7 +139,6 @@ class ServerPanelResource extends Resource
                         }),
                 ]),
 
-
             Forms\Components\Section::make('ظرفیت و وضعیت')
                 ->columns(2)
                 ->schema([
@@ -199,31 +201,31 @@ class ServerPanelResource extends Resource
                     ->modalCancelActionLabel('بستن')
                     ->visible(function (ServerPanel $record) {
                         try {
-                            return \App\Services\Core\Panels\PanelDriverFactory::make($record->panel_type)
-                                instanceof \App\Services\Core\Panels\SupportsServerStatus;
+                            return PanelDriverFactory::make($record->panel_type)
+                                instanceof SupportsServerStatus;
                         } catch (\Throwable) {
                             return false;
                         }
                     })
                     ->modalContent(function (ServerPanel $record) {
                         try {
-                            $driver = \App\Services\Core\Panels\PanelDriverFactory::make($record->panel_type);
+                            $driver = PanelDriverFactory::make($record->panel_type);
                             $status = $driver->getServerStatus($record);
 
                             $rows = '';
                             foreach ($status as $label => $value) {
                                 $rows .= '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;">'
-                                    . '<div style="font-size:12px;color:#6b7280;">' . e($label) . '</div>'
-                                    . '<div style="font-size:14px;font-weight:600;">' . e($value) . '</div>'
-                                    . '</div>';
+                                    .'<div style="font-size:12px;color:#6b7280;">'.e($label).'</div>'
+                                    .'<div style="font-size:14px;font-weight:600;">'.e($value).'</div>'
+                                    .'</div>';
                             }
 
-                            return new \Illuminate\Support\HtmlString(
-                                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' . $rows . '</div>'
+                            return new HtmlString(
+                                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'.$rows.'</div>'
                             );
                         } catch (\Throwable $e) {
-                            return new \Illuminate\Support\HtmlString(
-                                '<div style="color:#dc2626;font-size:14px;">خطا در دریافت وضعیت سرور: ' . e($e->getMessage()) . '</div>'
+                            return new HtmlString(
+                                '<div style="color:#dc2626;font-size:14px;">خطا در دریافت وضعیت سرور: '.e($e->getMessage()).'</div>'
                             );
                         }
                     }),
