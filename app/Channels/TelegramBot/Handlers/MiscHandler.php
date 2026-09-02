@@ -105,6 +105,8 @@ class MiscHandler
                 $product,
                 salesChannel: 'test_account',
                 isTest: true,
+                testTrafficMb: $settings->traffic_mb,
+                testDurationHours: $settings->duration_hours,
             );
         } catch (\RuntimeException $e) {
             $this->telegram->sendMessage([

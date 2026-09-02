@@ -33,7 +33,7 @@ class TestAccountSettings extends Page implements HasForms
     public function mount(): void
     {
         $this->form->fill(
-            TestAccountSetting::current()->only(['enabled', 'product_id', 'max_per_user'])
+            TestAccountSetting::current()->only(['enabled', 'product_id', 'max_per_user', 'traffic_mb', 'duration_hours'])
         );
     }
 
@@ -47,11 +47,29 @@ class TestAccountSettings extends Page implements HasForms
 
                 Forms\Components\Select::make('product_id')
                     ->label('محصول اکانت تست')
-                    ->helperText('یک محصول با قیمت ۰ تومان بسازید (در بخش «محصولات و تعرفه‌ها») — می‌توانید آن را در یک دسته‌بندی جدا و غیرفعال/مخفی از منوی خرید عادی قرار دهید — و همان را اینجا انتخاب کنید. حجم و مدت اعتبار اکانت تست از همین محصول خوانده می‌شود.')
+                    ->helperText('این محصول فقط برای تعیین دسته‌بندی/پروتکل و سرورهای مجاز اکانت تست استفاده می‌شود — حجم و مدت اعتبار خودِ محصول نادیده گرفته می‌شود و از دو فیلد زیر خوانده می‌شود. می‌توانید همان محصول با قیمت ۰ تومان را در یک دسته‌بندی جدا و غیرفعال/مخفی از منوی خرید عادی قرار دهید.')
                     ->options(fn () => Product::query()->pluck('name', 'id'))
                     ->searchable()
                     ->preload()
                     ->required(fn (Forms\Get $get) => (bool) $get('enabled')),
+
+                Forms\Components\TextInput::make('traffic_mb')
+                    ->label('حجم اکانت تست (مگابایت)')
+                    ->helperText('مثلاً ۵۰۰ برای نیم گیگابایت، یا ۱۰۲۴ برای یک گیگابایت.')
+                    ->numeric()
+                    ->minValue(1)
+                    ->default(500)
+                    ->suffix('MB')
+                    ->required(),
+
+                Forms\Components\TextInput::make('duration_hours')
+                    ->label('مدت اعتبار اکانت تست (ساعت)')
+                    ->helperText('مثلاً ۱ برای یک ساعت، ۲۴ برای یک روز.')
+                    ->numeric()
+                    ->minValue(1)
+                    ->default(1)
+                    ->suffix('ساعت')
+                    ->required(),
 
                 Forms\Components\TextInput::make('max_per_user')
                     ->label('حداکثر تعداد اکانت تست به‌ازای هر کاربر')
