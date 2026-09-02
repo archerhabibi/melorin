@@ -23,8 +23,7 @@ class AccountsHandler
         protected AccountService $accountService,
         protected WalletService $walletService,
         protected QrCodeGenerator $qr,
-    ) {
-    }
+    ) {}
 
     public function list(int $chatId, User $user): void
     {
@@ -52,9 +51,9 @@ class AccountsHandler
         };
 
         $text = "🔹 {$account->product?->name}\n"
-            . "وضعیت: {$statusFa}\n"
-            . 'تاریخ انقضا: ' . $account->expires_at->format('Y-m-d') . "\n"
-            . ($account->traffic_gb ? "حجم کل: {$account->traffic_gb} گیگ" . ($account->traffic_used_gb ? " (مصرف‌شده: {$account->traffic_used_gb} گیگ)" : '') . "\n" : '');
+            ."وضعیت: {$statusFa}\n"
+            .'تاریخ انقضا: '.$account->expires_at->format('Y-m-d')."\n"
+            .($account->traffic_gb ? "حجم کل: {$account->traffic_gb} گیگ".($account->traffic_used_gb ? " (مصرف‌شده: {$account->traffic_used_gb} گیگ)" : '')."\n" : '');
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
@@ -69,7 +68,7 @@ class AccountsHandler
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "🔗 لینک سابسکریپشن:\n`" . $this->qr->scannableTextFor($account) . '`',
+            'text' => "🔗 لینک سابسکریپشن:\n`".$this->qr->scannableTextFor($account).'`',
             'parse_mode' => 'Markdown',
         ]);
 
@@ -98,7 +97,7 @@ class AccountsHandler
         if ($this->walletService->balance($user) < (float) $product->price) {
             $this->telegram->sendMessage([
                 'chat_id' => $chatId,
-                'text' => 'برای تمدید، ابتدا کیف پول خود را شارژ کنید. هزینه‌ی تمدید: ' . number_format((float) $product->price) . ' تومان',
+                'text' => 'برای تمدید، ابتدا کیف پول خود را شارژ کنید. هزینه‌ی تمدید: '.number_format((float) $product->price).' تومان',
             ]);
 
             return;

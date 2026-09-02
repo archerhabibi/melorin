@@ -17,6 +17,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('test_account_settings')) {
+            return;
+        }
         Schema::create('test_account_settings', function (Blueprint $table) {
             $table->id();
             $table->boolean('enabled')->default(false);

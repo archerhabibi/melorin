@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 
 /**
  * بررسی و تایید/رد رسیدهای پرداخت (بند ۱۲ سند نیازمندی). این Resource
@@ -33,7 +34,7 @@ class PaymentResource extends Resource
         return $form->schema([
             Forms\Components\Placeholder::make('user')
                 ->label('کاربر تلگرام')
-                ->content(fn (Payment $record) => $record->user->full_name . ' (شناسه: ' . $record->user->telegram_id . ')'),
+                ->content(fn (Payment $record) => $record->user->full_name.' (شناسه: '.$record->user->telegram_id.')'),
 
             Forms\Components\Placeholder::make('depositor_name')
                 ->label('نام صاحب کارتِ واریزکننده')
@@ -41,7 +42,7 @@ class PaymentResource extends Resource
 
             Forms\Components\Placeholder::make('amount')
                 ->label('مبلغ')
-                ->content(fn (Payment $record) => number_format((float) $record->amount) . ' تومان'),
+                ->content(fn (Payment $record) => number_format((float) $record->amount).' تومان'),
 
             Forms\Components\Placeholder::make('method')
                 ->label('روش پرداخت')
@@ -50,8 +51,8 @@ class PaymentResource extends Resource
             Forms\Components\Placeholder::make('receipt_image')
                 ->label('رسید پرداخت')
                 ->content(fn (Payment $record) => $record->receipt_image
-                    ? new \Illuminate\Support\HtmlString(
-                        '<img src="' . route('admin.payments.receipt', $record) . '" style="max-width:400px;border-radius:8px" alt="رسید پرداخت">'
+                    ? new HtmlString(
+                        '<img src="'.route('admin.payments.receipt', $record).'" style="max-width:400px;border-radius:8px" alt="رسید پرداخت">'
                     )
                     : 'رسیدی ثبت نشده است.'),
         ]);
@@ -112,7 +113,7 @@ class PaymentResource extends Resource
 
                             Notification::make()->title('پرداخت تایید و کیف پول شارژ شد.')->success()->send();
                         } catch (\Throwable $e) {
-                            Notification::make()->title('خطا: ' . $e->getMessage())->danger()->send();
+                            Notification::make()->title('خطا: '.$e->getMessage())->danger()->send();
                         }
                     }),
 
@@ -142,7 +143,7 @@ class PaymentResource extends Resource
 
                             Notification::make()->title('وجه با موفقیت بازگشت داده شد.')->success()->send();
                         } catch (\Throwable $e) {
-                            Notification::make()->title('خطا: ' . $e->getMessage())->danger()->send();
+                            Notification::make()->title('خطا: '.$e->getMessage())->danger()->send();
                         }
                     }),
             ]);

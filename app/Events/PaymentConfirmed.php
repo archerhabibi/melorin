@@ -17,7 +17,5 @@ class PaymentConfirmed
     use Dispatchable;
     use SerializesModels;
 
-    public function __construct(public readonly Payment $payment)
-    {
-    }
+    public function __construct(public readonly Payment $payment) {}
 }

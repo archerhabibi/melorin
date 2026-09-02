@@ -9,8 +9,7 @@ class GatewayVerificationResult
         public readonly ?string $trackingCode = null,
         public readonly ?array $rawResponse = null,
         public readonly ?string $errorMessage = null,
-    ) {
-    }
+    ) {}
 
     public static function ok(?string $trackingCode = null, ?array $raw = null): self
     {

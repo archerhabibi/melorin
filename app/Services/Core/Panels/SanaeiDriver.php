@@ -6,6 +6,7 @@ use App\DataTransferObjects\PanelAccountRequest;
 use App\DataTransferObjects\PanelAccountResult;
 use App\Models\ServerPanel;
 use App\Services\Core\Panels\Concerns\BuildsPanelBaseUrl;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -28,7 +29,7 @@ use Illuminate\Support\Str;
  * دقیقاً با همان تنظیمات (فقط با email/uuid/حجم/انقضای خودش) می‌سازد.
  * این دقیقاً همان روشی است که در ربات میرزا هم استفاده می‌شود.
  */
-class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
+class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus, SupportsUsernameAvailability
 {
     use BuildsPanelBaseUrl;
 
@@ -66,7 +67,7 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
             throw new PanelConnectionException(
                 "برای پنل سنایی '{$panel->name}' آدرس عمومی سرویس Subscription (sub_base_url) در تنظیمات سرور ثبت نشده. ".
                 'این آدرس را از پنل 3X-UI ببینید: Settings → Subscription → Sub Port + Sub Path، و کامل (شامل مسیر) وارد کنید — چیزی خودکار اضافه نمی‌شود. '.
-                "مثال: اگر Sub Port=2096 و Sub Path=/sub/ باشد، مقدار درست https://your-domain:2096/sub است."
+                'مثال: اگر Sub Port=2096 و Sub Path=/sub/ باشد، مقدار درست https://your-domain:2096/sub است.'
             );
         }
 
@@ -74,7 +75,7 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
     }
 
     /** درخواست آماده با هدر Authorization: Bearer <token> */
-    protected function client(ServerPanel $panel): \Illuminate\Http\Client\PendingRequest
+    protected function client(ServerPanel $panel): PendingRequest
     {
         $token = $this->credentials($panel)['api_token'] ?? null;
 
@@ -164,6 +165,49 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
         ];
     }
 
+    public function usernameExists(ServerPanel $panel, string $username): bool
+    {
+        try {
+            $response = $this->client($panel)->get(
+                '/panel/api/clients/get/'.rawurlencode($username)
+            );
+
+            $data = $response->json();
+
+            // سنایی برای اکانت موجود معمولاً success=true برمی‌گرداند.
+            if ($response->successful() && ($data['success'] ?? false) === true) {
+                return true;
+            }
+
+            // رفتار واقعی سنایی برای username ناموجود:
+            // HTTP 200 + success=false + obj=null
+            if (
+                $response->successful()
+                && ($data['success'] ?? null) === false
+                && ($data['obj'] ?? null) === null
+                && str_contains(
+                    Str::lower((string) ($data['msg'] ?? '')),
+                    'record not found'
+                )
+            ) {
+                return false;
+            }
+
+            // هیچ پاسخ غیرقابل‌تشخیصی را به‌عنوان username آزاد قبول نکن.
+            throw new PanelConnectionException(
+                "بررسی وجود نام کاربری '{$username}' روی پنل سنایی '{$panel->name}' ناموفق بود ({$response->status()}): ".
+                $response->body()
+            );
+        } catch (PanelConnectionException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new PanelConnectionException(
+                "بررسی وجود نام کاربری '{$username}' روی پنل سنایی '{$panel->name}' ناموفق بود: ".
+                $e->getMessage()
+            );
+        }
+    }
+
     public function createAccount(ServerPanel $panel, PanelAccountRequest $request): PanelAccountResult
     {
         try {
@@ -191,12 +235,12 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
         ]);
 
         if (! $response->successful() || ($response->json('success') === false)) {
-            return PanelAccountResult::fail('ساخت اکانت در سنایی ناموفق بود: ' . $response->body(), $response->json());
+            return PanelAccountResult::fail('ساخت اکانت در سنایی ناموفق بود: '.$response->body(), $response->json());
         }
 
         return PanelAccountResult::ok(
             $response->json(),
-            $this->subBaseUrl($panel) . '/' . $subId,
+            $this->subBaseUrl($panel).'/'.$subId,
             panelExtra: ['subscription_id' => $subId],
         );
     }
@@ -268,7 +312,7 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
     protected function safeSubscriptionUrl(ServerPanel $panel, string $subId): ?string
     {
         try {
-            return $this->subBaseUrl($panel) . '/' . $subId;
+            return $this->subBaseUrl($panel).'/'.$subId;
         } catch (PanelConnectionException) {
             return null;
         }
@@ -304,7 +348,7 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
 
         if (! $response->successful()) {
             throw new PanelConnectionException(
-                "دریافت وضعیت سرور ناموفق بود ({$response->status()}): " . $response->body()
+                "دریافت وضعیت سرور ناموفق بود ({$response->status()}): ".$response->body()
             );
         }
 
@@ -313,16 +357,16 @@ class SanaeiDriver implements PanelDriverInterface, SupportsServerStatus
         $toGb = fn ($bytes) => $bytes ? round($bytes / 1024 / 1024 / 1024, 2) : 0;
 
         return [
-            'پردازنده' => isset($status['cpu']) ? round($status['cpu'], 1) . '%' : '—',
+            'پردازنده' => isset($status['cpu']) ? round($status['cpu'], 1).'%' : '—',
             'هسته‌های CPU' => $status['cpuCores'] ?? '—',
             'رم مصرفی' => isset($status['mem']['current'])
-                ? $toGb($status['mem']['current']) . ' / ' . $toGb($status['mem']['total'] ?? 0) . ' گیگابایت'
+                ? $toGb($status['mem']['current']).' / '.$toGb($status['mem']['total'] ?? 0).' گیگابایت'
                 : '—',
             'دیسک مصرفی' => isset($status['disk']['current'])
-                ? $toGb($status['disk']['current']) . ' / ' . $toGb($status['disk']['total'] ?? 0) . ' گیگابایت'
+                ? $toGb($status['disk']['current']).' / '.$toGb($status['disk']['total'] ?? 0).' گیگابایت'
                 : '—',
-            'آپلود کل' => $toGb($status['netTraffic']['sent'] ?? 0) . ' گیگابایت',
-            'دانلود کل' => $toGb($status['netTraffic']['recv'] ?? 0) . ' گیگابایت',
+            'آپلود کل' => $toGb($status['netTraffic']['sent'] ?? 0).' گیگابایت',
+            'دانلود کل' => $toGb($status['netTraffic']['recv'] ?? 0).' گیگابایت',
             'وضعیت Xray' => ($status['xray']['state'] ?? null) === 'running' ? '🟢 فعال' : '🔴 غیرفعال',
             'نسخه Xray' => $status['xray']['version'] ?? '—',
             'آپتایم (ثانیه)' => $status['uptime'] ?? '—',

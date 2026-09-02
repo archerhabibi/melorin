@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class AuditLog extends Model
 {
     public $timestamps = true;
+
     const UPDATED_AT = null; // لاگ‌ها هرگز ویرایش نمی‌شوند
 
     protected $fillable = [

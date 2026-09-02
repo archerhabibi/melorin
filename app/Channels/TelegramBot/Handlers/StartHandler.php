@@ -15,9 +15,7 @@ use Telegram\Bot\Api;
  */
 class StartHandler
 {
-    public function __construct(protected Api $telegram, protected ConversationState $state)
-    {
-    }
+    public function __construct(protected Api $telegram, protected ConversationState $state) {}
 
     public function handle(int $chatId, User $user, ?string $payload): void
     {

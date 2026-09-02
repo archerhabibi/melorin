@@ -22,9 +22,7 @@ use Telegram\Bot\Objects\Update;
  */
 class WebhookController
 {
-    public function __construct(protected Api $telegram, protected UpdateRouter $router)
-    {
-    }
+    public function __construct(protected Api $telegram, protected UpdateRouter $router) {}
 
     public function __invoke(Request $request, string $token): Response
     {
@@ -84,7 +82,7 @@ class WebhookController
             return response('ok');
         }
 
-        $freshName = trim($telegramUser->get('first_name') . ' ' . $telegramUser->get('last_name'));
+        $freshName = trim($telegramUser->get('first_name').' '.$telegramUser->get('last_name'));
 
         // لاگ تشخیصی دائمی: نگه داشته می‌شود چون یک‌بار همین لاگ باعث پیدا
         // شدن و رفع قطعی یک باگ واقعی شد (echo پیام‌های خودِ ربات به‌خاطر

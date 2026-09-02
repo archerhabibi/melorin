@@ -22,8 +22,7 @@ class GatewayInitiationResult
         public readonly array $instructions = [],
         public readonly ?array $rawResponse = null,
         public readonly ?string $errorMessage = null,
-    ) {
-    }
+    ) {}
 
     public static function manual(array $instructions, ?array $raw = null): self
     {

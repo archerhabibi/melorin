@@ -26,8 +26,8 @@ class TelegramBotServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadRoutesFrom(__DIR__ . '/../../../routes/telegram.php');
+        $this->loadRoutesFrom(__DIR__.'/../../../routes/telegram.php');
 
-        $this->mergeConfigFrom(__DIR__ . '/../../../config/telegram.php', 'telegram');
+        $this->mergeConfigFrom(__DIR__.'/../../../config/telegram.php', 'telegram');
     }
 }

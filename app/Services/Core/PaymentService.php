@@ -2,6 +2,7 @@
 
 namespace App\Services\Core;
 
+use App\DataTransferObjects\GatewayInitiationResult;
 use App\Events\PaymentConfirmed;
 use App\Models\Admin;
 use App\Models\Payment;
@@ -19,14 +20,12 @@ use Illuminate\Support\Facades\DB;
  */
 class PaymentService
 {
-    public function __construct(protected WalletService $walletService)
-    {
-    }
+    public function __construct(protected WalletService $walletService) {}
 
     /**
      * ایجاد یک پرداخت جدید و شروع آن نزد درگاه.
      *
-     * @return array{payment: Payment, initiation: \App\DataTransferObjects\GatewayInitiationResult}
+     * @return array{payment: Payment, initiation: GatewayInitiationResult}
      */
     public function initiate(
         User $user,

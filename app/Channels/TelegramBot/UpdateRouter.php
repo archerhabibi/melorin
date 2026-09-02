@@ -30,8 +30,7 @@ class UpdateRouter
         protected AccountsHandler $accounts,
         protected MiscHandler $misc,
         protected WalletService $walletService,
-    ) {
-    }
+    ) {}
 
     public function handle(Update $update, User $user, int $chatId): void
     {
@@ -182,7 +181,7 @@ class UpdateRouter
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "🔑 دسترسی ادمین تایید شد.\n\nمدیریت کامل سیستم (سرورها، محصولات، پرداخت‌ها، کاربران) از طریق پنل مدیریت تحت وب انجام می‌شود:\n" . config('app.url') . '/admin',
+            'text' => "🔑 دسترسی ادمین تایید شد.\n\nمدیریت کامل سیستم (سرورها، محصولات، پرداخت‌ها، کاربران) از طریق پنل مدیریت تحت وب انجام می‌شود:\n".config('app.url').'/admin',
         ]);
     }
 
@@ -199,10 +198,10 @@ class UpdateRouter
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => "👤 حساب کاربری\n\n"
-                . "شناسه‌ی تلگرام: {$user->telegram_id}\n"
-                . "نام: {$user->full_name}\n"
-                . "تاریخ عضویت: {$user->created_at->format('Y-m-d')}\n"
-                . "💰 موجودی کیف پول: " . number_format($balance) . ' تومان',
+                ."شناسه‌ی تلگرام: {$user->telegram_id}\n"
+                ."نام: {$user->full_name}\n"
+                ."تاریخ عضویت: {$user->created_at->format('Y-m-d')}\n"
+                .'💰 موجودی کیف پول: '.number_format($balance).' تومان',
         ]);
     }
 }

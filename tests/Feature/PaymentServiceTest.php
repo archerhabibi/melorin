@@ -9,6 +9,9 @@ use App\Services\Core\PaymentService;
 use App\Services\Core\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Mockery;
+use Telegram\Bot\Api;
+use Telegram\Bot\Objects\Message;
 use Tests\TestCase;
 
 class PaymentServiceTest extends TestCase
@@ -16,11 +19,31 @@ class PaymentServiceTest extends TestCase
     use RefreshDatabase;
 
     protected PaymentService $payments;
+
     protected WalletService $wallet;
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $telegram = Mockery::mock(Api::class);
+
+        $telegram->shouldReceive('sendMessage')
+            ->zeroOrMoreTimes()
+            ->andReturnUsing(function (array $params) {
+                return new Message([
+                    'message_id' => 1,
+                    'date' => time(),
+                    'chat' => [
+                        'id' => $params['chat_id'] ?? 111222333,
+                        'type' => 'private',
+                    ],
+                    'text' => $params['text'] ?? '',
+                ]);
+            });
+
+        $this->app->instance(Api::class, $telegram);
+
         $this->payments = app(PaymentService::class);
         $this->wallet = app(WalletService::class);
 

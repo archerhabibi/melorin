@@ -32,7 +32,7 @@ class MarzbanDriver implements PanelDriverInterface
                 $credentials = $this->credentials($panel);
 
                 $response = Http::asForm()->post(
-                    $this->baseUrl($panel) . '/api/admin/token',
+                    $this->baseUrl($panel).'/api/admin/token',
                     [
                         'username' => $credentials['username'],
                         'password' => $credentials['password'],
@@ -41,7 +41,7 @@ class MarzbanDriver implements PanelDriverInterface
 
                 if (! $response->successful()) {
                     throw new PanelConnectionException(
-                        "اتصال به پنل مرزبان '{$panel->name}' ناموفق بود: " . $response->status()
+                        "اتصال به پنل مرزبان '{$panel->name}' ناموفق بود: ".$response->status()
                     );
                 }
 
@@ -66,18 +66,18 @@ class MarzbanDriver implements PanelDriverInterface
     {
         $payload = [
             'username' => $request->username,
-            'proxies' => $request->extra['proxies'] ?? new \stdClass(),
-            'inbounds' => $request->extra['inbounds'] ?? new \stdClass(),
+            'proxies' => $request->extra['proxies'] ?? new \stdClass,
+            'inbounds' => $request->extra['inbounds'] ?? new \stdClass,
             'data_limit' => $request->trafficBytes,
             'expire' => $request->expireTimestamp,
             'note' => $request->note ?? '',
             'data_limit_reset_strategy' => 'no_reset',
         ];
 
-        $response = $this->http($panel)->post($this->baseUrl($panel) . '/api/user', $payload);
+        $response = $this->http($panel)->post($this->baseUrl($panel).'/api/user', $payload);
 
         if (! $response->successful()) {
-            return PanelAccountResult::fail('ساخت اکانت در مرزبان ناموفق بود: ' . $response->body(), $response->json());
+            return PanelAccountResult::fail('ساخت اکانت در مرزبان ناموفق بود: '.$response->body(), $response->json());
         }
 
         $body = $response->json();
@@ -87,7 +87,7 @@ class MarzbanDriver implements PanelDriverInterface
 
     public function getAccount(ServerPanel $panel, string $username): PanelAccountResult
     {
-        $response = $this->http($panel)->get($this->baseUrl($panel) . "/api/user/{$username}");
+        $response = $this->http($panel)->get($this->baseUrl($panel)."/api/user/{$username}");
 
         if (! $response->successful()) {
             return PanelAccountResult::fail('اکانت یافت نشد یا خطا در دریافت اطلاعات.', $response->json());
@@ -106,7 +106,7 @@ class MarzbanDriver implements PanelDriverInterface
             'note' => $request->note,
         ], fn ($v) => $v !== null);
 
-        $response = $this->http($panel)->put($this->baseUrl($panel) . "/api/user/{$username}", $payload);
+        $response = $this->http($panel)->put($this->baseUrl($panel)."/api/user/{$username}", $payload);
 
         if (! $response->successful()) {
             return PanelAccountResult::fail('ویرایش اکانت ناموفق بود.', $response->json());
@@ -119,7 +119,7 @@ class MarzbanDriver implements PanelDriverInterface
 
     public function deleteAccount(ServerPanel $panel, string $username): PanelAccountResult
     {
-        $response = $this->http($panel)->delete($this->baseUrl($panel) . "/api/user/{$username}");
+        $response = $this->http($panel)->delete($this->baseUrl($panel)."/api/user/{$username}");
 
         return $response->successful()
             ? PanelAccountResult::ok()
@@ -128,7 +128,7 @@ class MarzbanDriver implements PanelDriverInterface
 
     public function resetUsage(ServerPanel $panel, string $username): PanelAccountResult
     {
-        $response = $this->http($panel)->post($this->baseUrl($panel) . "/api/user/{$username}/reset");
+        $response = $this->http($panel)->post($this->baseUrl($panel)."/api/user/{$username}/reset");
 
         return $response->successful()
             ? PanelAccountResult::ok()

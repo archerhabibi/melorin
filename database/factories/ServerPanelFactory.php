@@ -12,7 +12,7 @@ class ServerPanelFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => 'Server ' . $this->faker->unique()->city(),
+            'name' => 'Server '.$this->faker->unique()->city(),
             'panel_type' => 'marzban',
             'host' => 'https://panel.example.com',
             'port' => 8000,
