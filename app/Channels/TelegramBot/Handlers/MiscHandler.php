@@ -3,6 +3,7 @@
 namespace App\Channels\TelegramBot\Handlers;
 
 use App\Channels\TelegramBot\Support\ConversationState;
+use App\Events\TicketCreated;
 use App\Models\Account;
 use App\Models\AffiliateSetting;
 use App\Models\TestAccountSetting;
@@ -145,5 +146,10 @@ class MiscHandler
 
         $this->state->reset($chatId);
         $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => "✅ تیکت شما با شماره‌ی #{$ticket->id} ثبت شد. پشتیبانی به‌زودی پاسخ می‌دهد."]);
+
+        // پیش از این نسخه، تیکت فقط در دیتابیس ثبت می‌شد و هیچ‌کس مطلع
+        // نمی‌شد (بند «پشتیبانی نیمه‌کاره»). این رویداد به ادمین‌های
+        // تلگرام اطلاع می‌دهد که پاسخ باید از پنل داده شود.
+        TicketCreated::dispatch($ticket->fresh());
     }
 }
