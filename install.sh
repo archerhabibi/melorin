@@ -294,19 +294,104 @@ fi
 # Part 2: getting the Melorin code
 # ============================================================================
 if [[ "$MODE" == "install" ]]; then
+  echo "==> 9. Preparing Melorin source"
   mkdir -p "$(dirname "$APP_DIR")"
 
   if [[ -z "$MELORIN_REF" ]]; then
-    echo "==> 9. Detecting the latest Melorin release on GitHub"
+    echo "    Detecting the latest Melorin release on GitHub"
     MELORIN_REF="$(curl -fsSL "${REPO_API}/releases/latest" | jq -r '.tag_name' 2>/dev/null || true)"
+
     if [[ -z "$MELORIN_REF" || "$MELORIN_REF" == "null" ]]; then
       echo "    Could not detect the latest release — falling back to the 'main' branch."
       MELORIN_REF="main"
     fi
   fi
+
   echo "    Installing Melorin ${MELORIN_REF}"
-  git clone --branch "$MELORIN_REF" --depth 1 "$REPO_URL" "$APP_DIR"
+
+  INSTALL_TMP="$(mktemp -d)"
+
+  cleanup_install_tmp() {
+    rm -rf "$INSTALL_TMP"
+  }
+
+  trap cleanup_install_tmp EXIT
+
+  echo "    Trying Git clone..."
+
+  if git clone --branch "$MELORIN_REF" --depth 1 "$REPO_URL" "$INSTALL_TMP/melorin" 2>/dev/null; then
+    echo "    Git clone succeeded."
+  else
+    echo "    Git clone failed."
+    echo "    Falling back to GitHub Source Archive..."
+
+    ARCHIVE_FILE="$INSTALL_TMP/melorin.tar.gz"
+    ARCHIVE_DIR="$INSTALL_TMP/archive"
+
+    mkdir -p "$ARCHIVE_DIR"
+
+    if ! curl -fL --retry 3 --retry-delay 2 \
+      -o "$ARCHIVE_FILE" \
+      "${REPO_API}/tarball/${MELORIN_REF}"; then
+
+      echo "    ERROR: Could not download Melorin ${MELORIN_REF} from GitHub." >&2
+      echo "    Please check the GitHub repository, release/tag name, and server internet access." >&2
+      exit 1
+    fi
+
+    echo "    Extracting source archive..."
+
+    tar -xzf "$ARCHIVE_FILE" -C "$ARCHIVE_DIR"
+
+    ARCHIVE_ROOT="$(find "$ARCHIVE_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+
+    if [[ -z "$ARCHIVE_ROOT" || ! -d "$ARCHIVE_ROOT" ]]; then
+      echo "    ERROR: GitHub archive extraction failed." >&2
+      exit 1
+    fi
+
+    mkdir -p "$INSTALL_TMP/melorin"
+
+    cp -a "$ARCHIVE_ROOT"/. "$INSTALL_TMP/melorin"/
+
+    echo "    Source archive downloaded successfully."
+  fi
+
+  if [[ ! -f "$INSTALL_TMP/melorin/artisan" ]]; then
+    echo "    ERROR: Downloaded Melorin source does not contain artisan." >&2
+    exit 1
+  fi
+
+  echo "    Installing source into ${APP_DIR}"
+
+  if [[ -e "$APP_DIR" ]]; then
+    if [[ -n "$(find "$APP_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+      echo "    ERROR: ${APP_DIR} already exists and is not empty." >&2
+      echo "    Please choose an empty directory or remove the incomplete installation first." >&2
+      exit 1
+    fi
+  else
+    mkdir -p "$APP_DIR"
+  fi
+
+  cp -a "$INSTALL_TMP/melorin"/. "$APP_DIR"/
+
   cd "$APP_DIR"
+
+  # The archive fallback does not contain .git.
+  # Initialize a local Git repository so future installer updates remain supported.
+  if [[ ! -d .git ]]; then
+    echo "    Initializing local Git repository for future updates..."
+
+    git init
+    git remote add origin "$REPO_URL"
+
+    git add -A
+    git commit -m "Install Melorin ${MELORIN_REF}" >/dev/null 2>&1 || true
+  fi
+
+  echo "    Melorin ${MELORIN_REF} is ready."
+
 else
   echo "==> 9. Updating the existing checkout at ${APP_DIR}"
   cd "$APP_DIR"
@@ -328,6 +413,7 @@ else
       MELORIN_REF="main"
     fi
   fi
+
   echo "    Updating to ${MELORIN_REF}"
 
   if [[ -n "$(git status --porcelain)" ]]; then
