@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Core\AccountService;
+use Illuminate\Support\Str;
 use Telegram\Bot\Api;
 
 /**
@@ -45,9 +46,10 @@ class MiscHandler
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "🎁 لینک دعوت اختصاصی شما:\nhttps://t.me/{$botUsername}?start={$user->id}\n\n"
+            'text' => '🎁 لینک دعوت اختصاصی شما:'."\n".'<code>https://t.me/'.htmlspecialchars($botUsername, ENT_QUOTES)."?start={$user->id}</code>\n\n"
                 ."تعداد زیرمجموعه‌ها: {$user->referredUsers()->count()}\n"
                 .$bonusLine,
+            'parse_mode' => 'HTML',
         ]);
     }
 
@@ -107,11 +109,20 @@ class MiscHandler
 
         $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => '🧪 در حال ساخت اکانت تست شما...']);
 
+        // طبق درخواست صریح: نام اکانت تست باید آیدی تلگرام یا نام تلگرام
+        // کاربر باشد — مستقل از naming_mode سبد فروش (که برای خرید واقعی
+        // است). آیدی عددی تلگرام همیشه در دسترس و همیشه یکتاست؛ نام
+        // کامل فقط به‌عنوان fallback اگر به هر دلیلی خالی باشد.
+        $testUsername = $user->telegram_id
+            ? 'tg'.$user->telegram_id
+            : Str::slug($user->full_name ?: 'test', '_');
+
         try {
             $account = $this->accountService->purchase(
                 $user,
                 $product,
                 salesChannel: 'test_account',
+                customUsername: $testUsername,
                 isTest: true,
                 testTrafficMb: $settings->traffic_mb,
                 testDurationHours: $settings->duration_hours,

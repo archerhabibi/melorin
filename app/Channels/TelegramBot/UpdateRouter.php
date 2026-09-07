@@ -98,7 +98,7 @@ class UpdateRouter
             '🔍 استعلام و تمدید اکانت' => $this->accounts->list($chatId, $user),
             '💰 کیف پول و شارژ حساب' => $this->wallet->showBalance($chatId, $user),
             '👤 حساب کاربری' => $this->showProfile($chatId, $user),
-            '🎁 دعوت از دوستان / زیرمجموعه‌گیری' => $this->misc->referral($chatId, $user),
+            '🎁 دعوت از دوستان' => $this->misc->referral($chatId, $user),
             '🧪 دریافت اکانت تست' => $this->misc->testAccount($chatId, $user),
             '📜 قوانین خرید و آموزش' => $this->misc->rules($chatId),
             '🎧 پشتیبانی' => $this->misc->supportStart($chatId, $user),
@@ -108,7 +108,7 @@ class UpdateRouter
 
         return match ($text) {
             '🛒 خرید اکانت', '🔍 استعلام و تمدید اکانت', '💰 کیف پول و شارژ حساب',
-            '👤 حساب کاربری', '🎁 دعوت از دوستان / زیرمجموعه‌گیری', '🧪 دریافت اکانت تست',
+            '👤 حساب کاربری', '🎁 دعوت از دوستان', '🧪 دریافت اکانت تست',
             '📜 قوانین خرید و آموزش', '🎧 پشتیبانی', '🤖 ربات مشتری / نماینده' => true,
             default => false,
         };

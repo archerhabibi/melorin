@@ -229,16 +229,12 @@ class BuyAccountHandler
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => "✅ اکانت شما با موفقیت ساخته شد.\n\n"
-                .'نام کاربری: '.str_replace(
-                    ['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'],
-                    ['\\\\', '\\_', '\\*', '\\[', '\\]', '\\(', '\\)', '\\~', '\\`', '\\>', '\\#', '\\+', '\\-', '\\=', '\\|', '\\{', '\\}', '\\.', '\\!'],
-                    $account->panel_username
-                )."\n"
+                .'نام کاربری: '.htmlspecialchars((string) $account->panel_username, ENT_QUOTES)."\n"
                 .'تاریخ انقضا: '.$account->expires_at->format('Y-m-d')."\n"
                 .($account->traffic_gb ? "حجم: {$account->traffic_gb} گیگابایت\n" : '')
-                ."\n🔗 لینک سابسکریپشن:\n`".$this->qr->scannableTextFor($account).'`'
+                ."\n🔗 لینک سابسکریپشن:\n".'<code>'.htmlspecialchars($this->qr->scannableTextFor($account), ENT_QUOTES).'</code>'
                 ."\n\nاین لینک را در اپلیکیشن VPN خود به‌عنوان سابسکریپشن اضافه کنید (نه یک کانفیگ تکی) تا با هر تغییر بعدی خودکار به‌روز بماند.",
-            'parse_mode' => 'Markdown',
+            'parse_mode' => 'HTML',
         ]);
 
         $this->telegram->sendPhoto([

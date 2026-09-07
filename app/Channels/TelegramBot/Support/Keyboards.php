@@ -44,8 +44,8 @@ class Keyboards
             ['🛒 خرید اکانت', '🔍 استعلام و تمدید اکانت'],
             ['💰 کیف پول و شارژ حساب', '👤 حساب کاربری'],
             $testAccountEnabled
-                ? ['🎁 دعوت از دوستان / زیرمجموعه‌گیری', '🧪 دریافت اکانت تست']
-                : ['🎁 دعوت از دوستان / زیرمجموعه‌گیری'],
+                ? ['🎁 دعوت از دوستان', '🧪 دریافت اکانت تست']
+                : ['🎁 دعوت از دوستان'],
             ['📜 قوانین خرید و آموزش', '🎧 پشتیبانی'],
             ['🤖 ربات مشتری / نماینده'],
         ];
@@ -119,11 +119,11 @@ class Keyboards
     {
         return self::encode(['inline_keyboard' => [
             [
-                ['text' => '۵۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:50000'],
-                ['text' => '۱۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:100000'],
+                ['text' => '۲۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:200000'],
+                ['text' => '۵۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:500000'],
             ],
             [
-                ['text' => '۲۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:200000'],
+                ['text' => '۱,۰۰۰,۰۰۰ تومان', 'callback_data' => 'wallet:amount:1000000'],
                 ['text' => '✏️ مبلغ دلخواه', 'callback_data' => 'wallet:amount:custom'],
             ],
         ]]);

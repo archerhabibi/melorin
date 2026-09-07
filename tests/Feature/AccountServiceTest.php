@@ -182,4 +182,39 @@ class AccountServiceTest extends TestCase
 
         $this->assertEquals('ali_1', $account2->panel_username);
     }
+
+    /** @test */
+    public function test_accounts_use_the_forced_username_regardless_of_the_category_naming_mode(): void
+    {
+        Http::fake([
+            '*/api/admin/token' => Http::response(['access_token' => 'fake-token'], 200),
+            '*/api/user' => Http::response(['username' => 'irrelevant'], 200),
+        ]);
+
+        $panel = ServerPanel::factory()->create(['name' => 'Germany Frankfurt', 'panel_type' => 'marzban']);
+        // naming_mode پیش‌فرض 'random' است — عمداً صریح ست نمی‌کنیم، چون
+        // دقیقاً نکته‌ی این تست همین است: برای اکانت تست، حتی با
+        // naming_mode='random' (که customUsername را نادیده می‌گیرد)،
+        // نام باید همان customUsername باشد که MiscHandler::testAccount
+        // بر اساس telegram_id ساخته و می‌فرستد — نه پیشوندِ سرور/حجم.
+        $category = Category::factory()->create(['server_selection_mode' => 'auto']);
+        $category->serverPanels()->attach($panel);
+
+        $product = Product::factory()->create(['category_id' => $category->id, 'price' => 0, 'traffic_gb' => 30]);
+
+        $user = User::factory()->create(['telegram_id' => 123456789]);
+
+        $account = $this->accounts->purchase(
+            $user,
+            $product,
+            salesChannel: 'test_account',
+            customUsername: 'tg123456789',
+            isTest: true,
+            testTrafficMb: 500,
+            testDurationHours: 1,
+        );
+
+        $this->assertEquals('tg123456789', $account->panel_username);
+        $this->assertTrue($account->is_test);
+    }
 }

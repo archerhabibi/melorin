@@ -114,7 +114,7 @@ class AccountService
             // نوع پنل، از همان ابتدا در اختیار AccountService باشد و بتوان
             // آن را برای عملیات بعدی (تمدید/حذف روی پنل‌هایی مثل Sanaei که
             // با uuid کلاینت کار می‌کنند، نه فقط username) ذخیره کرد.
-            $username = $this->generateUsername($product, $panel, $customUsername);
+            $username = $this->generateUsername($product, $panel, $customUsername, $isTest);
             $clientUuid = (string) Str::uuid();
             // subId فقط برای پنل‌هایی مثل سنایی معنا دارد (شناسه‌ی
             // سرویس Subscription)، ولی چون تولیدش هیچ وابستگی به نوع پنل
@@ -236,12 +236,17 @@ class AccountService
      * - random (پیش‌فرض): همیشه به‌صورت «حروف‌اول‌سرور_حجم_شماره‌ترتیبی»
      *   ساخته می‌شود — برخلاف حالت custom، اینجا شماره‌ی ترتیبی همیشه
      *   حاضر است، نه فقط در صورت تکرار (طبق متن دقیق درخواست).
+     *
+     * $isTest: طبق درخواست صریح، نام اکانت تست همیشه بر اساس آیدی/نام
+     * تلگرام کاربر است (که MiscHandler::testAccount در $customUsername
+     * می‌فرستد) — مستقل از naming_mode سبد فروش، چون naming_mode فقط
+     * برای خرید واقعی معنا دارد و کاربر اکانت تست هیچ نامی وارد نمی‌کند.
      */
-    protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null): string
+    protected function generateUsername(Product $product, ServerPanel $panel, ?string $customUsername = null, bool $isTest = false): string
     {
         $driver = PanelDriverFactory::make($panel->panel_type);
 
-        if ($product->category->naming_mode === 'custom' && $customUsername) {
+        if (($isTest || $product->category->naming_mode === 'custom') && $customUsername) {
             return $this->uniqueUsername(
                 Str::lower($customUsername),
                 startBare: true,
