@@ -6,6 +6,7 @@ use App\Channels\TelegramBot\Support\ConversationState;
 use App\Events\TicketCreated;
 use App\Models\Account;
 use App\Models\AffiliateSetting;
+use App\Models\BotContentSetting;
 use App\Models\TestAccountSetting;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
@@ -57,7 +58,7 @@ class MiscHandler
     {
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "📜 قوانین خرید:\n\n۱. پس از خرید امکان بازگشت وجه وجود ندارد مگر در صورت خرابی سرویس.\n۲. اکانت‌ها فقط برای استفاده‌ی شخصی هستند.\n۳. برای هرگونه مشکل با پشتیبانی در تماس باشید.",
+            'text' => BotContentSetting::current()->purchaseRulesText(),
         ]);
     }
 

@@ -222,6 +222,16 @@ class BuyAccountHandler
 
         $this->state->reset($chatId);
         $this->deliverConfig($chatId, $account);
+
+        // طبق درخواست صریح: بعد از اتمام مراحل خرید در ربات، موجودی کیف
+        // پول نمایش داده شود. عمداً به‌جای اضافه‌کردن این به داخل
+        // deliverConfig() یک پیام جدا فرستاده می‌شود — deliverConfig()
+        // برای تحویل اکانتِ تست هم reuse می‌شود (MiscHandler::testAccount)
+        // که آنجا نمایش موجودی معنا ندارد (رایگان است) و نباید تغییر کند.
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => '💰 موجودی کیف پول شما: '.number_format($this->walletService->balance($user)).' تومان',
+        ]);
     }
 
     public function deliverConfig(int $chatId, Account $account): void

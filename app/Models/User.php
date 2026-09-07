@@ -76,4 +76,18 @@ class User extends Model
     {
         return $this->hasMany(Commission::class, 'referrer_id');
     }
+
+    /**
+     * آیا این کاربر همان کسی است که در ربات تلگرام با فرستادن «ادمین»
+     * به منوی مدیریت دسترسی دارد (بند ۳.۱ سند نیازمندی)؟ این یک فلگ
+     * دیتابیسی نیست — منبعِ حقیقتش config('telegram.admin_ids') است
+     * (UpdateRouter::handleAdminCommand همین‌جا را چک می‌کند)، پس این
+     * accessor فقط همان چک را در دسترس UserResource هم قرار می‌دهد تا
+     * این کاربران در پنل وب از مشتریان عادی قابل‌تفکیک باشند — بدون
+     * migration و بدون دو منبع حقیقتِ ناهماهنگ.
+     */
+    public function isBotAdmin(): bool
+    {
+        return in_array((string) $this->telegram_id, config('telegram.admin_ids', []), true);
+    }
 }
