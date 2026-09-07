@@ -16,6 +16,8 @@ use Mockery;
 use Telegram\Bot\Api;
 use Telegram\Bot\Objects\Message;
 use Tests\TestCase;
+use Telegram\Bot\Objects\User as TelegramUser;
+
 
 /**
  * پوشش تست برای سه رفع/فیچر درخواستی که پیام واقعی ارسالی به تلگرام را
@@ -61,6 +63,16 @@ class AccountSummaryAndRenewMessagingTest extends TestCase
                 'date' => time(),
                 'chat' => ['id' => $params['chat_id'] ?? 555, 'type' => 'private'],
             ]));
+
+        $telegram->shouldReceive('getMe')
+            ->zeroOrMoreTimes()
+            ->andReturn(new TelegramUser([
+                'id' => 1,
+                'is_bot' => true,
+                'first_name' => 'Melorin',
+                'username' => 'MelorinBot',
+            ]));
+
 
         $this->app->instance(Api::class, $telegram);
     }

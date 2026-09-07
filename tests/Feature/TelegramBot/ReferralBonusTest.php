@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 use Tests\Concerns\FakesTelegram;
+use Telegram\Bot\Objects\User as TelegramUser;
 
 /**
  * پوشش تست برای رفع باگ گزارش‌شده: لینک دعوت وعده‌ی «پاداش X تومان»
@@ -30,7 +31,16 @@ class ReferralBonusTest extends TestCase
     {
         parent::setUp();
 
-        $this->fakeTelegram();
+        $telegram = $this->fakeTelegram();
+
+        $telegram->shouldReceive('getMe')
+            ->zeroOrMoreTimes()
+            ->andReturn(new \Telegram\Bot\Objects\User([
+                'id' => 1,
+                'is_bot' => true,
+                'first_name' => 'Melorin',
+                'username' => 'MelorinBot',
+            ]));
     }
 
     /** @test */

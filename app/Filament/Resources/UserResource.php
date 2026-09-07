@@ -44,6 +44,12 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('id')->label('#'),
                 Tables\Columns\TextColumn::make('full_name')->label('نام')->searchable(),
                 Tables\Columns\TextColumn::make('telegram_id')->label('شناسه تلگرام')->searchable(),
+                Tables\Columns\TextColumn::make('role')
+                    ->label('نقش')
+                    ->badge()
+                    ->getStateUsing(fn (User $record) => $record->isBotAdmin() ? 'admin' : 'customer')
+                    ->colors(['warning' => 'admin', 'gray' => 'customer'])
+                    ->formatStateUsing(fn (string $state) => $state === 'admin' ? '🔑 ادمین ربات' : 'مشتری'),
                 Tables\Columns\TextColumn::make('wallet.balance')->label('موجودی کیف پول')
                     ->money('IRT', divideBy: 1)
                     ->default(0),
@@ -61,6 +67,19 @@ class UserResource extends Resource
                 Tables\Filters\SelectFilter::make('status')
                     ->label('وضعیت')
                     ->options(['active' => 'فعال', 'disabled' => 'غیرفعال', 'blocked' => 'مسدود']),
+
+                Tables\Filters\SelectFilter::make('role')
+                    ->label('نقش')
+                    ->options(['admin' => '🔑 ادمین ربات', 'customer' => 'مشتری'])
+                    ->query(function (\Illuminate\Database\Eloquent\Builder $query, array $data) {
+                        $adminIds = array_map('intval', config('telegram.admin_ids', []));
+
+                        if ($data['value'] === 'admin') {
+                            $query->whereIn('telegram_id', $adminIds);
+                        } elseif ($data['value'] === 'customer') {
+                            $query->whereNotIn('telegram_id', $adminIds);
+                        }
+                    }),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),

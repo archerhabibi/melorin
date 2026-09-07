@@ -8,6 +8,7 @@ use App\Models\AffiliateSetting;
 use App\Models\TestAccountSetting;
 use App\Models\User;
 use App\Services\Core\WalletService;
+use Illuminate\Support\Facades\Cache;
 use Telegram\Bot\Api;
 
 /**
@@ -120,8 +121,27 @@ class StartHandler
     {
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => 'به ربات ملورین خوش آمدید 🌐',
+            'text' => "به {$this->botDisplayName()} خوش آمدید 🌐",
             'reply_markup' => Keyboards::mainMenu(TestAccountSetting::current()->isUsable()),
         ]);
+    }
+
+    /**
+     * قبلاً این متن هاردکد «ربات ملورین» بود — اگر کسی ربات را از
+     * BotFather با نام دیگری بسازد یا بعداً rename کند، پیام خوش‌آمد
+     * دیگر با نام واقعی ربات یکی نبود (طبق درخواست صریح). به‌جای یک
+     * تنظیمِ دستی دیگر در پنل که ممکن است با تغییر نام واقعی ربات
+     * هماهنگ نماند، مستقیم از Telegram getMe() خوانده می‌شود — یعنی
+     * همیشه با نام واقعیِ ربات یکی است، بدون نیاز به هیچ اقدام دستی.
+     * برای این‌که هر /start یک درخواست اضافه به API تلگرام نزند، ۲۴
+     * ساعت کش می‌شود (نام ربات عملاً هیچ‌وقت در میانه‌ی روز عوض نمی‌شود).
+     */
+    protected function botDisplayName(): string
+    {
+        return Cache::remember(
+            'telegram_bot_display_name',
+            now()->addDay(),
+            fn () => $this->telegram->getMe()->getFirstName() ?: 'ربات ملورین'
+        );
     }
 }
