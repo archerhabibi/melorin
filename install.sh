@@ -63,6 +63,16 @@ REQUESTED_REF="${1:-}"
 read -rp "Install path [default: /var/www/melorin]: " APP_DIR
 APP_DIR="${APP_DIR:-/var/www/melorin}"
 
+# Every previous run of this script ends by chown-ing the whole install
+# (including .git) to www-data (Part 3, step 12). Since this script always
+# runs as root, the *next* run's git commands would otherwise fail with
+# "fatal: detected dubious ownership in repository" on Git >= 2.35.2 — this
+# is exactly the scenario an unknown/untrusted user hitting the public
+# curl|bash one-liner on a server that was already installed once. Doing
+# this unconditionally, before any git command, covers both install and
+# update mode and both the git-clone and archive-fallback paths below.
+git config --global --add safe.directory "$APP_DIR"
+
 if [[ -f "$APP_DIR/artisan" ]]; then
   MODE="update"
 else

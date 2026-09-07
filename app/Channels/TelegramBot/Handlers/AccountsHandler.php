@@ -51,13 +51,21 @@ class AccountsHandler
         };
 
         $text = "🔹 {$account->product?->name}\n"
+            .'نام اکانت: '.htmlspecialchars((string) $account->panel_username, ENT_QUOTES)."\n"
             ."وضعیت: {$statusFa}\n"
-            .'تاریخ انقضا: '.$account->expires_at->format('Y-m-d')."\n"
-            .($account->traffic_gb ? "حجم کل: {$account->traffic_gb} گیگ".($account->traffic_used_gb ? " (مصرف‌شده: {$account->traffic_used_gb} گیگ)" : '')."\n" : '');
+            .'تاریخ انقضا: '.$account->expires_at->format('Y-m-d')."\n";
+
+        if ($account->traffic_gb !== null) {
+            $text .= 'حجم کل: '.number_format((float) $account->traffic_gb, 2)." گیگ\n";
+            $text .= 'حجم باقی‌مانده: '.number_format((float) $account->remainingTrafficGb(), 2)." گیگ\n";
+        } else {
+            $text .= "حجم کل: نامحدود\n";
+        }
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => $text,
+            'parse_mode' => 'HTML',
             'reply_markup' => Keyboards::accountActions($account->id),
         ]);
     }
@@ -68,8 +76,8 @@ class AccountsHandler
 
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => "🔗 لینک سابسکریپشن:\n`".$this->qr->scannableTextFor($account).'`',
-            'parse_mode' => 'Markdown',
+            'text' => '🔗 لینک سابسکریپشن:'."\n".'<code>'.htmlspecialchars($this->qr->scannableTextFor($account), ENT_QUOTES).'</code>',
+            'parse_mode' => 'HTML',
         ]);
 
         $this->telegram->sendPhoto([
@@ -94,7 +102,9 @@ class AccountsHandler
         $account = $user->accounts()->with('product')->findOrFail($accountId);
         $product = $account->product;
 
-        if ($this->walletService->balance($user) < (float) $product->price) {
+        $balanceBeforeRenewal = $this->walletService->balance($user);
+
+        if ($balanceBeforeRenewal < (float) $product->price) {
             $this->telegram->sendMessage([
                 'chat_id' => $chatId,
                 'text' => 'برای تمدید، ابتدا کیف پول خود را شارژ کنید. هزینه‌ی تمدید: '.number_format((float) $product->price).' تومان',
@@ -123,7 +133,18 @@ class AccountsHandler
             return;
         }
 
-        $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => '✅ اکانت شما با موفقیت تمدید شد.']);
+        // طبق درخواست صریح: موجودی کیف پول قبل و بعد از تمدید نمایش داده
+        // شود — balanceBeforeRenewal همان مبلغی است که هنوز کسر نشده بود
+        // (نه یک پیام جدا قبل از انجام عملیات)، و موجودی فعلی را دوباره
+        // می‌خوانیم چون purchase() همین الان آن را تغییر داده است.
+        $balanceAfterRenewal = $this->walletService->balance($user);
+
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "✅ اکانت شما با موفقیت تمدید شد.\n\n"
+                .'موجودی کیف پول قبل از تمدید: '.number_format($balanceBeforeRenewal)." تومان\n"
+                .'موجودی کیف پول بعد از تمدید: '.number_format($balanceAfterRenewal).' تومان',
+        ]);
         $this->sendSummary($chatId, $account->fresh());
     }
 }

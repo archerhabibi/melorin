@@ -57,4 +57,18 @@ class Account extends Model
     {
         return $this->expires_at?->isPast() ?? false;
     }
+
+    /**
+     * حجم باقی‌مانده به گیگابایت. null یعنی نامحدود (traffic_gb خالی است).
+     * هیچ‌وقت منفی برنمی‌گرداند — اگر مصرف از کل هم بیشتر ثبت شده باشد
+     * (مثلاً به‌خاطر تأخیر sync با پنل)، صفر نشان داده می‌شود، نه عدد منفی.
+     */
+    public function remainingTrafficGb(): ?float
+    {
+        if ($this->traffic_gb === null) {
+            return null;
+        }
+
+        return max(0.0, (float) $this->traffic_gb - (float) ($this->traffic_used_gb ?? 0));
+    }
 }

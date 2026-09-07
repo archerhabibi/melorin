@@ -60,7 +60,14 @@ for arg in "$@"; do
 done
 
 APP_DIR="${ARGS[0]:-/var/www/melorin}"
-BRANCH="${ARGS[1]:-main}"
+# REF می‌تواند یک tag مشخص (مثل v2.4.8) یا نام یک برنچ باشد. قبلاً این
+# آرگومان BRANCH نام داشت و همیشه پیش‌فرضش "main" بود — یعنی این اسکریپت
+# اصلاً راهی برای رفتن به یک نسخه‌ی مشخص نداشت (برخلاف install.sh که
+# «Version/tag to install» را می‌پرسد). حالا اگر خالی بماند، درست مثل
+# install.sh، آخرین release گیت‌هاب resolve می‌شود (نه همیشه main).
+REF="${ARGS[1]:-}"
+
+REPO_API="https://api.github.com/repos/archerhabibi/melorin"
 
 # ============================================================================
 # 2. Basic checks
@@ -82,6 +89,16 @@ if [[ ! -d "$APP_DIR/.git" ]]; then
 fi
 
 cd "$APP_DIR"
+
+# این اسکریپت همیشه با root اجرا می‌شود (چک بالا) ولی مالکیت $APP_DIR
+# می‌تواند از یک اجرای موفق قبلی (بخش ۲۴: chown -R www-data) به www-data
+# تغییر کرده باشد — روی Git >= 2.35.2 این باعث می‌شود همین اولین دستور
+# Git بعدی (بخش ۹، git status) با خطای
+# «fatal: detected dubious ownership in repository» متوقف شود. چون
+# APP_DIR توسط همان کسی که این اسکریپت را با root اجرا کرده مشخص شده،
+# نگرانیِ امنیتیِ safe.directory (جلوگیری از اجرای Git روی یک ریپوی
+# ناشناس) اینجا صدق نمی‌کند.
+git config --global --add safe.directory "$APP_DIR"
 
 # ============================================================================
 # 3. Logging
@@ -105,7 +122,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
 fi
 
 echo " مسیر: ${APP_DIR}"
-echo " برنچ: ${BRANCH}"
+echo " نسخه/برنچ درخواستی: ${REF:-(خالی → آخرین release)}"
 echo " لاگ:  ${LOG_FILE}"
 echo "======================================================================"
 echo ""
@@ -374,12 +391,40 @@ echo "==> بررسی GitHub"
 
 CURRENT_COMMIT="$(git rev-parse HEAD)"
 
-git fetch origin "$BRANCH" --quiet
+# قبلاً این بخش همیشه فرض می‌کرد REF یک برنچ است («git fetch origin
+# "$BRANCH"» + «origin/${BRANCH}»)؛ برای یک tag این کار نمی‌کرد. حالا:
+# ۱. اگر REF خالی بود، مثل install.sh آخرین release گیت‌هاب را می‌گیریم.
+# ۲. tag ها را جدا fetch می‌کنیم (چون یک تگ زیرشاخه‌ی هیچ برنچی نیست).
+# ۳. تلاش برای fetch مستقیم REF (برای حالتی که REF یک برنچ باشد).
+# ۴. commit مقصد را هم از refs/tags و هم از origin/REF امتحان می‌کنیم.
+if [[ -z "$REF" ]]; then
+    echo "    تشخیص آخرین release در GitHub"
+    REF="$(curl -fsSL "${REPO_API}/releases/latest" | jq -r '.tag_name' 2>/dev/null || true)"
 
-REMOTE_COMMIT="$(git rev-parse "origin/${BRANCH}")"
+    if [[ -z "$REF" || "$REF" == "null" ]]; then
+        echo "    آخرین release پیدا نشد — برنچ main استفاده می‌شود."
+        REF="main"
+    fi
+
+    echo "    نسخه: ${REF}"
+fi
+
+git fetch origin --tags --force --quiet
+git fetch origin "$REF" --quiet 2>/dev/null || true
+
+if git rev-parse -q --verify "refs/tags/${REF}" >/dev/null 2>&1; then
+    REF_IS_TAG=1
+    REMOTE_COMMIT="$(git rev-parse "refs/tags/${REF}")"
+elif git rev-parse -q --verify "origin/${REF}" >/dev/null 2>&1; then
+    REF_IS_TAG=0
+    REMOTE_COMMIT="$(git rev-parse "origin/${REF}")"
+else
+    echo "خطا: نسخه/برنچ '${REF}' نه به‌عنوان tag و نه به‌عنوان برنچ روی GitHub پیدا نشد." >&2
+    exit 1
+fi
 
 echo "    Current: ${CURRENT_COMMIT:0:12}"
-echo "    Remote:  ${REMOTE_COMMIT:0:12}"
+echo "    Remote:  ${REMOTE_COMMIT:0:12} (${REF}$([[ $REF_IS_TAG -eq 1 ]] && echo ' — tag' || echo ' — branch'))"
 
 # ============================================================================
 # 11. No update
@@ -542,11 +587,28 @@ echo ""
 
 echo "==> دریافت کد جدید از GitHub"
 
-git checkout "$BRANCH"
-
-git pull origin "$BRANCH" --ff-only
+# قبلاً این‌جا همیشه «git checkout BRANCH && git pull --ff-only» بود که
+# فقط برای یک برنچِ در-حال-حرکت معنا دارد؛ روی یک tag، «pull --ff-only»
+# اصلاً مفهومی ندارد (تگ‌ها جلو نمی‌روند) و سرور را در حالت نامشخصی رها
+# می‌کرد. حالا صریحاً بین این دو حالت تفاوت می‌گذاریم:
+# - tag → checkout --detach روی خودِ تگ. detached HEAD اینجا یک خطا
+#   نیست؛ دقیقاً همان چیزی است که یک دیپلویمنت مبتنی بر ریلیز باید
+#   باشد (همان‌طور که install.sh هم برای یک MELORIN_REF مشخص همین کار
+#   را می‌کند).
+# - برنچ → یک برنچ محلی هم‌نام با همان commit ریموت (بدون نیاز به pull
+#   جداگانه، چون REMOTE_COMMIT را از قبل در بخش ۱۰ فچ و resolve کردیم).
+if [[ "$REF_IS_TAG" -eq 1 ]]; then
+    git checkout --detach "refs/tags/${REF}"
+else
+    git checkout -B "$REF" "origin/${REF}"
+fi
 
 NEW_COMMIT="$(git rev-parse HEAD)"
+
+if [[ "$NEW_COMMIT" != "$REMOTE_COMMIT" ]]; then
+    echo "خطا: checkout به commit مورد انتظار نرسید (${NEW_COMMIT:0:12} != ${REMOTE_COMMIT:0:12})." >&2
+    exit 1
+fi
 
 echo ""
 echo "    ${CURRENT_COMMIT:0:12} → ${NEW_COMMIT:0:12} ✅"
