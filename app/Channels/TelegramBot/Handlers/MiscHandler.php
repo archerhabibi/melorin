@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Core\AccountService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Telegram\Bot\Api;
 
@@ -59,6 +60,76 @@ class MiscHandler
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
             'text' => BotContentSetting::current()->purchaseRulesText(),
+        ]);
+    }
+
+    /**
+     * «🤖 درخواست ربات نماینده و همکاری» — طبق درخواست صریح، دو مسیر
+     * کاملاً جدا دارد:
+     *
+     * - ادمین ربات (isBotAdmin — یعنی خودِ صاحب/اپراتور همین استقرار
+     *   Melorin): وارد جریان درخواست نمی‌شود، چون او که ربات را نصب
+     *   کرده نیازی به «درخواست» ربات نماینده از خودش ندارد؛ چیزی که
+     *   نیاز دارد نسخه‌ی Pro برای فعال‌سازی امکان ربات نماینده است — یک
+     *   پیام ثابت با لینک نشان داده می‌شود.
+     * - کاربر عادی: منتظر توضیحات می‌ماند (ConversationState) تا در
+     *   resellerRequestSubmit برای همه‌ی ادمین‌های ربات فوروارد شود.
+     */
+    public function resellerRequestStart(int $chatId, User $user): void
+    {
+        if ($user->isBotAdmin()) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => "برای دریافت و فعال‌سازی ربات نماینده نیاز به نسخه‌ی پرو می‌باشد.\nhttps://t.me/melorinpro\nبرای اطلاعات بیشتر به لینک بالا مراجعه شود.",
+                ]);
+
+            return;
+        }
+
+        $this->state->set($chatId, ConversationState::RESELLER_REQUEST_AWAITING_DESCRIPTION, [], $user);
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => '📌 توضیحات خود را برای ثبت درخواست نمایندگی ارسال نمایید.',
+        ]);
+    }
+
+    /**
+     * توضیحاتی که کاربر بعد از resellerRequestStart فرستاده را برای
+     * همه‌ی config('telegram.admin_ids') فوروارد می‌کند — دقیقاً همان
+     * الگویی که NotifyAdminsOfNewTicket برای تیکت‌های پشتیبانی از قبل
+     * دارد (broadcast به همه‌ی ادمین‌های ربات، نه یک نفر مشخص)، طبق
+     * تصمیم صریح که این درخواست‌ها به همه برسند نه فقط یک نفر. اگر هیچ
+     * admin_id ای تنظیم نشده باشد، درخواست کاربر را بی‌صدا گم نمی‌کنیم —
+     * در لاگ ثبت می‌شود تا لااقل قابل پیگیری دستی باشد، و به خودِ کاربر
+     * همچنان پیام تأیید داده می‌شود (چون از دید او، او کارش را انجام
+     * داده است).
+     */
+    public function resellerRequestSubmit(int $chatId, User $user, string $text): void
+    {
+        $this->state->reset($chatId);
+
+        $adminIds = config('telegram.admin_ids', []);
+
+        if ($adminIds) {
+            foreach ($adminIds as $adminId) {
+                $this->telegram->sendMessage([
+                    'chat_id' => $adminId,
+                    'text' => "🤖 درخواست جدید ربات نماینده و همکاری\n\n"
+                        ."از: {$user->full_name} (telegram_id: {$user->telegram_id})\n\n"
+                        ."توضیحات:\n{$text}",
+                ]);
+            }
+        } else {
+            Log::warning('Reseller request received but no TELEGRAM_ADMIN_IDS are configured.', [
+                'user_id' => $user->id,
+                'telegram_id' => $user->telegram_id,
+                'description' => $text,
+            ]);
+        }
+
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => '✅ درخواست شما ثبت و برای بررسی ارسال شد. به‌زودی با شما تماس گرفته می‌شود.',
         ]);
     }
 
