@@ -102,14 +102,14 @@ class UpdateRouter
             '🧪 دریافت اکانت تست' => $this->misc->testAccount($chatId, $user),
             '📜 قوانین خرید و آموزش' => $this->misc->rules($chatId),
             '🎧 پشتیبانی' => $this->misc->supportStart($chatId, $user),
-            '🤖 ربات مشتری / نماینده' => $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => 'این بخش به‌زودی فعال می‌شود.']),
+            '🤖 درخواست ربات نماینده و همکاری' => $this->misc->resellerRequestStart($chatId, $user),
             default => null,
         };
 
         return match ($text) {
             '🛒 خرید اکانت', '🔍 استعلام و تمدید اکانت', '💰 کیف پول و شارژ حساب',
             '👤 حساب کاربری', '🎁 دعوت از دوستان', '🧪 دریافت اکانت تست',
-            '📜 قوانین خرید و آموزش', '🎧 پشتیبانی', '🤖 ربات مشتری / نماینده' => true,
+            '📜 قوانین خرید و آموزش', '🎧 پشتیبانی', '🤖 درخواست ربات نماینده و همکاری' => true,
             default => false,
         };
     }
@@ -123,6 +123,7 @@ class UpdateRouter
             ConversationState::WALLET_AWAITING_DEPOSITOR_NAME => $this->wallet->handleDepositorName($chatId, $user, $text),
             ConversationState::SUPPORT_AWAITING_MESSAGE => $this->misc->supportSubmit($chatId, $user, $text),
             ConversationState::BUY_AWAITING_CUSTOM_NAME => $this->buy->handleCustomNameText($chatId, $user, $text),
+            ConversationState::RESELLER_REQUEST_AWAITING_DESCRIPTION => $this->misc->resellerRequestSubmit($chatId, $user, $text),
             default => $this->start->showMainMenu($chatId),
         };
     }

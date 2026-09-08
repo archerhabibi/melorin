@@ -39,6 +39,12 @@ class ConversationState
 
     public const SUPPORT_AWAITING_MESSAGE = 'support:awaiting_message';
 
+    // بعد از زدن «🤖 درخواست ربات نماینده و همکاری» (فقط برای کاربران
+    // عادی — برای ادمین‌ها این دکمه پیام ثابتِ نیازِ نسخه‌ی پرو را نشان
+    // می‌دهد و وارد این جریان نمی‌شوند)، منتظر توضیحات کاربر می‌ماند تا
+    // برای همه‌ی ادمین‌های ربات فوروارد شود.
+public const RESELLER_REQUEST_AWAITING_DESCRIPTION = 'reseller_request:awaiting_description';
+
     public function find(int $chatId): TelegramConversationState
     {
         return TelegramConversationState::firstOrCreate(
