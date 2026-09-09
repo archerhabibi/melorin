@@ -4,6 +4,7 @@ namespace Tests\Concerns;
 
 use Mockery\MockInterface;
 use Telegram\Bot\Api;
+use Telegram\Bot\Objects\Message;
 
 /**
  * پکیج irazasyed/telegram-bot-sdk برای درخواست‌های خودش (sendMessage,
@@ -26,5 +27,23 @@ trait FakesTelegram
         return $this->mock(Api::class, function (MockInterface $mock) {
             $mock->shouldIgnoreMissing();
         });
+    }
+
+    /**
+     * وقتی تست به‌جای fakeTelegram() یک Mockery::mock(Api::class) دستی
+     * می‌سازد (چون می‌خواهد روی متن هر پیام withArgs() جداگانه بگذارد)،
+     * sendMessage()/sendPhoto() نباید null برگردانند — امضای واقعی SDK
+     * این متدها را ': Message' تایپ کرده، پس null باعث TypeError واقعی
+     * می‌شود (نه فقط در تست). این متد یک نمونه‌ی حداقلی و معتبر از
+     * Message برمی‌گرداند تا ->andReturn(...) همیشه type-safe بماند.
+     */
+    protected function fakeMessage(): Message
+    {
+        return new Message([
+            'message_id' => 1,
+            'date' => time(),
+            'chat' => ['id' => 1, 'type' => 'private'],
+            'text' => 'test',
+        ]);
     }
 }

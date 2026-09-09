@@ -12,16 +12,14 @@ use App\Models\BotContentSetting;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
-use Tests\TestCase;
 use Tests\Concerns\FakesTelegram;
-
+use Tests\TestCase;
 
 class AdminPanelUpdatesTest extends TestCase
 {
-    use RefreshDatabase;
     use FakesTelegram;
+    use RefreshDatabase;
 
     protected function actingAsAdmin(): Admin
     {
@@ -32,7 +30,7 @@ class AdminPanelUpdatesTest extends TestCase
     }
 
     /** @test */
-    public function user_isBotAdmin_reflects_the_configured_telegram_admin_ids(): void
+    public function user_is_bot_admin_reflects_the_configured_telegram_admin_ids(): void
     {
         config(['telegram.admin_ids' => ['111', '222']]);
 
@@ -70,7 +68,7 @@ class AdminPanelUpdatesTest extends TestCase
         $default = BotContentSetting::current()->purchaseRulesText();
         $this->assertStringContainsString('بازگشت وجه', $default);
 
-        app(MiscHandler::class);
+        app(MiscHandler::class); // فقط اطمینان از این‌که resolve بدون خطا انجام می‌شود
     }
 
     /** @test */

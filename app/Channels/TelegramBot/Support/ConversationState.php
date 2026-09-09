@@ -42,8 +42,16 @@ class ConversationState
     // بعد از زدن «🤖 درخواست ربات نماینده و همکاری» (فقط برای کاربران
     // عادی — برای ادمین‌ها این دکمه پیام ثابتِ نیازِ نسخه‌ی پرو را نشان
     // می‌دهد و وارد این جریان نمی‌شوند)، منتظر توضیحات کاربر می‌ماند تا
-    // برای همه‌ی ادمین‌های ربات فوروارد شود.
-public const RESELLER_REQUEST_AWAITING_DESCRIPTION = 'reseller_request:awaiting_description';
+    // اولین پیامِ یک تیکت جدید از نوع reseller_request شود.
+    public const RESELLER_REQUEST_AWAITING_DESCRIPTION = 'reseller_request:awaiting_description';
+
+    // وقتی کاربر یک تیکت باز/پاسخ‌داده‌شده از قبل دارد (پشتیبانی یا
+    // درخواست نمایندگی، فرقی نمی‌کند) و دوباره روی همان دکمه‌ی منو
+    // می‌زند، پیام بعدی‌اش — به‌جای ساخت یک تیکت جدید — به همان تیکت
+    // (شناسه‌اش در payload['ticket_id']) اضافه می‌شود. این همان چیزی
+    // است که مکالمه‌ی دوطرفه‌ی واقعی (نه فقط یک پیام یک‌طرفه) را ممکن
+    // می‌کند — طبق درخواست صریح.
+    public const TICKET_AWAITING_REPLY = 'ticket:awaiting_reply';
 
     public function find(int $chatId): TelegramConversationState
     {

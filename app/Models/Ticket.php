@@ -12,7 +12,7 @@ class Ticket extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'subject', 'status', 'priority'];
+    protected $fillable = ['user_id', 'type', 'subject', 'status', 'priority'];
 
     public function user(): BelongsTo
     {

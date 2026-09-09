@@ -9,9 +9,9 @@ use App\Services\Core\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Tests\TestCase;
-use Tests\Concerns\FakesTelegram;
 use Telegram\Bot\Objects\User as TelegramUser;
+use Tests\Concerns\FakesTelegram;
+use Tests\TestCase;
 
 /**
  * پوشش تست برای رفع باگ گزارش‌شده: لینک دعوت وعده‌ی «پاداش X تومان»
@@ -24,18 +24,21 @@ use Telegram\Bot\Objects\User as TelegramUser;
  */
 class ReferralBonusTest extends TestCase
 {
-    use RefreshDatabase;
     use FakesTelegram;
+    use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $telegram = $this->fakeTelegram();
-
-        $telegram->shouldReceive('getMe')
+        // StartHandler::botDisplayName() برای پیام خوش‌آمدگویی از
+        // getMe() استفاده می‌کند (ر.ک. StartHandler.php)؛ بدون این
+        // استاب، shouldIgnoreMissing() یک mock خام برمی‌گرداند که
+        // getFirstName() (متد مجازی/magic شیء User) را ندارد.
+        $this->fakeTelegram()
+            ->shouldReceive('getMe')
             ->zeroOrMoreTimes()
-            ->andReturn(new \Telegram\Bot\Objects\User([
+            ->andReturn(new TelegramUser([
                 'id' => 1,
                 'is_bot' => true,
                 'first_name' => 'Melorin',

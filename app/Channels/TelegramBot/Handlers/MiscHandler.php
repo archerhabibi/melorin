@@ -4,6 +4,7 @@ namespace App\Channels\TelegramBot\Handlers;
 
 use App\Channels\TelegramBot\Support\ConversationState;
 use App\Events\TicketCreated;
+use App\Events\TicketUserReplied;
 use App\Models\Account;
 use App\Models\AffiliateSetting;
 use App\Models\BotContentSetting;
@@ -12,7 +13,6 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Core\AccountService;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Telegram\Bot\Api;
 
@@ -72,8 +72,10 @@ class MiscHandler
      *   کرده نیازی به «درخواست» ربات نماینده از خودش ندارد؛ چیزی که
      *   نیاز دارد نسخه‌ی Pro برای فعال‌سازی امکان ربات نماینده است — یک
      *   پیام ثابت با لینک نشان داده می‌شود.
-     * - کاربر عادی: منتظر توضیحات می‌ماند (ConversationState) تا در
-     *   resellerRequestSubmit برای همه‌ی ادمین‌های ربات فوروارد شود.
+     * - کاربر عادی: اگر از قبل یک درخواستِ بازِ خودش دارد، به‌جای شروع
+     *   یک تیکت جدید، به همان گفتگو ادامه می‌دهیم (promptTicketReply).
+     *   وگرنه منتظر توضیحات می‌ماند تا در resellerRequestSubmit اولین
+     *   پیامِ یک تیکت جدید (type=reseller_request) شود.
      */
     public function resellerRequestStart(int $chatId, User $user): void
     {
@@ -81,7 +83,20 @@ class MiscHandler
             $this->telegram->sendMessage([
                 'chat_id' => $chatId,
                 'text' => "برای دریافت و فعال‌سازی ربات نماینده نیاز به نسخه‌ی پرو می‌باشد.\nhttps://t.me/melorinpro\nبرای اطلاعات بیشتر به لینک بالا مراجعه شود.",
-                ]);
+            ]);
+
+            return;
+        }
+
+        $openTicket = Ticket::query()
+            ->where('user_id', $user->id)
+            ->where('type', 'reseller_request')
+            ->where('status', '!=', 'closed')
+            ->latest()
+            ->first();
+
+        if ($openTicket) {
+            $this->promptTicketReply($chatId, $user, $openTicket);
 
             return;
         }
@@ -94,43 +109,38 @@ class MiscHandler
     }
 
     /**
-     * توضیحاتی که کاربر بعد از resellerRequestStart فرستاده را برای
-     * همه‌ی config('telegram.admin_ids') فوروارد می‌کند — دقیقاً همان
-     * الگویی که NotifyAdminsOfNewTicket برای تیکت‌های پشتیبانی از قبل
-     * دارد (broadcast به همه‌ی ادمین‌های ربات، نه یک نفر مشخص)، طبق
-     * تصمیم صریح که این درخواست‌ها به همه برسند نه فقط یک نفر. اگر هیچ
-     * admin_id ای تنظیم نشده باشد، درخواست کاربر را بی‌صدا گم نمی‌کنیم —
-     * در لاگ ثبت می‌شود تا لااقل قابل پیگیری دستی باشد، و به خودِ کاربر
-     * همچنان پیام تأیید داده می‌شود (چون از دید او، او کارش را انجام
-     * داده است).
+     * طبق درخواست صریح، درخواست نمایندگی از این نسخه به بعد یک پیام
+     * خامِ broadcast‌شده به ادمین‌ها نیست، بلکه یک تیکتِ واقعی (نوعش
+     * reseller_request) است — دقیقاً هم‌الگو با supportSubmit — تا از
+     * همان پنل تیکت‌ها و همان زیرساخت گفتگوی دوطرفه قابل‌پاسخ باشد.
+     * TicketCreated (که NotifyAdminsOfNewTicket از قبل به آن گوش
+     * می‌دهد) همان broadcast به همه‌ی admin_ids را انجام می‌دهد؛ دیگر
+     * نیازی به یک لوپ جداگانه نبود.
      */
     public function resellerRequestSubmit(int $chatId, User $user, string $text): void
     {
+        $ticket = Ticket::create([
+            'user_id' => $user->id,
+            'type' => 'reseller_request',
+            'subject' => '🤖 درخواست ربات نماینده و همکاری',
+            'status' => 'open',
+            'priority' => 'normal',
+        ]);
+
+        TicketMessage::create([
+            'ticket_id' => $ticket->id,
+            'sender_type' => 'user',
+            'sender_id' => $user->id,
+            'message' => $text,
+        ]);
+
         $this->state->reset($chatId);
-
-        $adminIds = config('telegram.admin_ids', []);
-
-        if ($adminIds) {
-            foreach ($adminIds as $adminId) {
-                $this->telegram->sendMessage([
-                    'chat_id' => $adminId,
-                    'text' => "🤖 درخواست جدید ربات نماینده و همکاری\n\n"
-                        ."از: {$user->full_name} (telegram_id: {$user->telegram_id})\n\n"
-                        ."توضیحات:\n{$text}",
-                ]);
-            }
-        } else {
-            Log::warning('Reseller request received but no TELEGRAM_ADMIN_IDS are configured.', [
-                'user_id' => $user->id,
-                'telegram_id' => $user->telegram_id,
-                'description' => $text,
-            ]);
-        }
-
         $this->telegram->sendMessage([
             'chat_id' => $chatId,
-            'text' => '✅ درخواست شما ثبت و برای بررسی ارسال شد. به‌زودی با شما تماس گرفته می‌شود.',
+            'text' => "✅ درخواست شما با شماره‌ی #{$ticket->id} ثبت و برای بررسی ارسال شد. به‌زودی با شما تماس گرفته می‌شود.",
         ]);
+
+        TicketCreated::dispatch($ticket->fresh());
     }
 
     /**
@@ -214,6 +224,19 @@ class MiscHandler
 
     public function supportStart(int $chatId, User $user): void
     {
+        $openTicket = Ticket::query()
+            ->where('user_id', $user->id)
+            ->where('type', 'support')
+            ->where('status', '!=', 'closed')
+            ->latest()
+            ->first();
+
+        if ($openTicket) {
+            $this->promptTicketReply($chatId, $user, $openTicket);
+
+            return;
+        }
+
         $this->state->set($chatId, ConversationState::SUPPORT_AWAITING_MESSAGE, [], $user);
         $this->telegram->sendMessage(['chat_id' => $chatId, 'text' => '🎧 پیام خود را برای پشتیبانی بنویسید:']);
     }
@@ -222,6 +245,7 @@ class MiscHandler
     {
         $ticket = Ticket::create([
             'user_id' => $user->id,
+            'type' => 'support',
             'subject' => mb_substr($text, 0, 60),
             'status' => 'open',
             'priority' => 'normal',
@@ -241,5 +265,79 @@ class MiscHandler
         // نمی‌شد (بند «پشتیبانی نیمه‌کاره»). این رویداد به ادمین‌های
         // تلگرام اطلاع می‌دهد که پاسخ باید از پنل داده شود.
         TicketCreated::dispatch($ticket->fresh());
+    }
+
+    /**
+     * وقتی کاربر یک تیکت باز/پاسخ‌داده‌شده از قبل دارد (پشتیبانی یا
+     * درخواست نمایندگی — فرقی نمی‌کند) و دوباره روی همان دکمه‌ی منو
+     * می‌زند، به‌جای باز کردن یک تیکت جدید، آخرین چند پیام را نشان
+     * می‌دهیم و منتظر پیام بعدی می‌مانیم تا به همین تیکت اضافه شود.
+     * دقیقاً همین امکان — که کاربر هر وقت بخواهد بتواند ادامه بدهد، نه
+     * فقط یک‌بار در همان ابتدا — همان «حالت Conversation و مکالمه»یی
+     * است که طبق درخواست صریح باید در همه‌ی تیکت‌ها باشد.
+     */
+    protected function promptTicketReply(int $chatId, User $user, Ticket $ticket): void
+    {
+        $recap = $ticket->messages()
+            ->latest()
+            ->take(3)
+            ->get()
+            ->reverse()
+            ->map(fn (TicketMessage $m) => ($m->sender_type === 'admin' ? '👨‍💼 پشتیبانی: ' : '🧑 شما: ').mb_substr($m->message, 0, 200))
+            ->implode("\n\n");
+
+        $this->state->set($chatId, ConversationState::TICKET_AWAITING_REPLY, ['ticket_id' => $ticket->id], $user);
+
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "شما یک تیکت باز دارید (#{$ticket->id}):\n\n{$recap}\n\n💬 پیام خود را بفرستید تا به همین تیکت اضافه شود.",
+        ]);
+    }
+
+    /**
+     * پیامی که کاربر بعد از promptTicketReply می‌فرستد — به همان تیکت
+     * اضافه می‌شود، نه یک تیکت جدید. اگر تیکت answered بود، وضعیتش به
+     * open برمی‌گردد (چون دوباره منتظر پاسخ ادمین است). اگر بین نمایش
+     * prompt و ارسال پیام، ادمین از پنل تیکت را بسته باشد، پیام کاربر
+     * همچنان ثبت می‌شود و تیکت دوباره open می‌شود — چون از دید کاربر،
+     * او هنوز به کمک نیاز دارد.
+     *
+     * چک user_id در کوئری Ticket::find عمداً است: حتی اگر یک ticket_id
+     * قدیمی/دستکاری‌شده در payload باشد، کاربر نمی‌تواند به تیکت شخص
+     * دیگری پیام اضافه کند.
+     */
+    public function ticketReplySubmit(int $chatId, User $user, string $text): void
+    {
+        $ticketId = $this->state->find($chatId)->payload['ticket_id'] ?? null;
+
+        $this->state->reset($chatId);
+
+        $ticket = $ticketId
+            ? Ticket::query()->where('user_id', $user->id)->find($ticketId)
+            : null;
+
+        if (! $ticket) {
+            $this->telegram->sendMessage([
+                'chat_id' => $chatId,
+                'text' => 'این تیکت دیگر در دسترس نیست. لطفاً دوباره از منو شروع کنید.',
+            ]);
+
+            return;
+        }
+
+        $message = $ticket->messages()->create([
+            'sender_type' => 'user',
+            'sender_id' => $user->id,
+            'message' => $text,
+        ]);
+
+        $ticket->update(['status' => 'open']);
+
+        $this->telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => "✅ پیام شما به تیکت #{$ticket->id} اضافه شد.",
+        ]);
+
+        TicketUserReplied::dispatch($message->fresh());
     }
 }

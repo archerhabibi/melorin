@@ -91,11 +91,11 @@ class SupportTicketFlowTest extends TestCase
         $telegram->shouldReceive('sendMessage')
             ->once()
             ->withArgs(fn (array $params) => $params['chat_id'] === '111' && str_contains($params['text'], (string) $ticket->id))
-            ->andReturn(null);
+            ->andReturn($this->fakeMessage());
         $telegram->shouldReceive('sendMessage')
             ->once()
             ->withArgs(fn (array $params) => $params['chat_id'] === '222')
-            ->andReturn(null);
+            ->andReturn($this->fakeMessage());
 
         (new NotifyAdminsOfNewTicket($telegram))->handle(new TicketCreated($ticket));
     }
@@ -131,7 +131,7 @@ class SupportTicketFlowTest extends TestCase
             ->once()
             ->withArgs(fn (array $params) => $params['chat_id'] === $user->telegram_id
                 && str_contains($params['text'], 'کانفیگ را دوباره امتحان کنید'))
-            ->andReturn(null);
+            ->andReturn($this->fakeMessage());
 
         (new NotifyUserOfTicketAnswer($telegram))->handle(new TicketAnswered($message));
     }

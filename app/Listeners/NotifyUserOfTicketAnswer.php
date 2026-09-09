@@ -25,7 +25,8 @@ class NotifyUserOfTicketAnswer
         }
 
         $text = "💬 پاسخ پشتیبانی به تیکت #{$message->ticket_id} ({$message->ticket->subject}):\n\n"
-            .$message->message;
+            .$message->message
+            ."\n\nبرای پاسخ، به 🎧 «پشتیبانی» بروید و پیام خود را ارسال کنید.";
 
         try {
             $this->telegram->sendMessage([

@@ -124,6 +124,7 @@ class UpdateRouter
             ConversationState::SUPPORT_AWAITING_MESSAGE => $this->misc->supportSubmit($chatId, $user, $text),
             ConversationState::BUY_AWAITING_CUSTOM_NAME => $this->buy->handleCustomNameText($chatId, $user, $text),
             ConversationState::RESELLER_REQUEST_AWAITING_DESCRIPTION => $this->misc->resellerRequestSubmit($chatId, $user, $text),
+            ConversationState::TICKET_AWAITING_REPLY => $this->misc->ticketReplySubmit($chatId, $user, $text),
             default => $this->start->showMainMenu($chatId),
         };
     }

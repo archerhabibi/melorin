@@ -51,10 +51,14 @@ class TicketResource extends Resource
         // فقط نمایش خلاصه‌ی تیکت در صفحه‌ی View؛ خودِ گفتگو (و پاسخ‌دادن)
         // در MessagesRelationManager زیر همین صفحه انجام می‌شود.
         return $form->schema([
-            Forms\Components\Grid::make(3)->schema([
+            Forms\Components\Grid::make(4)->schema([
                 Forms\Components\Placeholder::make('user')
                     ->label('کاربر')
                     ->content(fn (Ticket $record) => $record->user->full_name.' (شناسه: '.$record->user->telegram_id.')'),
+
+                Forms\Components\Placeholder::make('type')
+                    ->label('نوع')
+                    ->content(fn (Ticket $record) => $record->type === 'reseller_request' ? '🤖 درخواست نمایندگی' : '🎧 پشتیبانی'),
 
                 Forms\Components\Placeholder::make('subject')
                     ->label('موضوع')
@@ -80,6 +84,10 @@ class TicketResource extends Resource
                 Tables\Columns\TextColumn::make('user.full_name')->label('کاربر')->searchable(),
                 Tables\Columns\TextColumn::make('user.telegram_id')->label('شناسه تلگرام')->searchable(),
                 Tables\Columns\TextColumn::make('subject')->label('موضوع')->searchable()->limit(40),
+                Tables\Columns\BadgeColumn::make('type')
+                    ->label('نوع')
+                    ->colors(['info' => 'support', 'warning' => 'reseller_request'])
+                    ->formatStateUsing(fn ($state) => $state === 'reseller_request' ? '🤖 درخواست نمایندگی' : '🎧 پشتیبانی'),
                 Tables\Columns\BadgeColumn::make('priority')
                     ->label('اولویت')
                     ->colors([
@@ -113,6 +121,12 @@ class TicketResource extends Resource
             ])
             ->defaultSort('updated_at', 'desc')
             ->filters([
+                Tables\Filters\SelectFilter::make('type')
+                    ->label('نوع')
+                    ->options([
+                        'support' => '🎧 پشتیبانی',
+                        'reseller_request' => '🤖 درخواست نمایندگی',
+                    ]),
                 Tables\Filters\SelectFilter::make('status')
                     ->label('وضعیت')
                     ->options([

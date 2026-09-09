@@ -14,6 +14,7 @@ class TicketFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
+            'type' => 'support',
             'subject' => $this->faker->sentence(4),
             'status' => 'open',
             'priority' => 'normal',

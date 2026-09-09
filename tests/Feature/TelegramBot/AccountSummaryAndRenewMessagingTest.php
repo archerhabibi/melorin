@@ -4,6 +4,7 @@ namespace Tests\Feature\TelegramBot;
 
 use App\Channels\TelegramBot\Handlers\AccountsHandler;
 use App\Channels\TelegramBot\Handlers\StartHandler;
+use App\Models\Account;
 use App\Models\AffiliateSetting;
 use App\Models\Category;
 use App\Models\Product;
@@ -15,9 +16,8 @@ use Illuminate\Support\Facades\Http;
 use Mockery;
 use Telegram\Bot\Api;
 use Telegram\Bot\Objects\Message;
-use Tests\TestCase;
 use Telegram\Bot\Objects\User as TelegramUser;
-
+use Tests\TestCase;
 
 /**
  * پوشش تست برای سه رفع/فیچر درخواستی که پیام واقعی ارسالی به تلگرام را
@@ -64,6 +64,10 @@ class AccountSummaryAndRenewMessagingTest extends TestCase
                 'chat' => ['id' => $params['chat_id'] ?? 555, 'type' => 'private'],
             ]));
 
+        // StartHandler::botDisplayName() برای پیام خوش‌آمدگویی از getMe()
+        // استفاده می‌کند — این تست دستی/strict است (نه FakesTelegram)
+        // پس بدون این استاب هر فراخوانی getMe() یک BadMethodCallException
+        // می‌دهد، حتی وقتی خودِ پیام خوش‌آمدگویی مورد بررسی این تست نیست.
         $telegram->shouldReceive('getMe')
             ->zeroOrMoreTimes()
             ->andReturn(new TelegramUser([
@@ -73,11 +77,10 @@ class AccountSummaryAndRenewMessagingTest extends TestCase
                 'username' => 'MelorinBot',
             ]));
 
-
         $this->app->instance(Api::class, $telegram);
     }
 
-    protected function makeAccountWithTraffic(User $user, float $price, float $trafficGb, float $trafficUsedGb): \App\Models\Account
+    protected function makeAccountWithTraffic(User $user, float $price, float $trafficGb, float $trafficUsedGb): Account
     {
         $panel = ServerPanel::factory()->create(['panel_type' => 'marzban']);
         $category = Category::factory()->create();
@@ -85,7 +88,7 @@ class AccountSummaryAndRenewMessagingTest extends TestCase
 
         $product = Product::factory()->create(['category_id' => $category->id, 'price' => $price]);
 
-        return \App\Models\Account::factory()->create([
+        return Account::factory()->create([
             'user_id' => $user->id,
             'product_id' => $product->id,
             'server_panel_id' => $panel->id,
